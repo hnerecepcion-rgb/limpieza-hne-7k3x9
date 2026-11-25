@@ -2994,6 +2994,7 @@ function doAutoAssign(){
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el) return;
   if(el.tagName==='input'||el.tagName==='INPUT') return;
+  if(el.classList.contains('mask') && e.target!==el) return;
   handle(el.dataset.act, el.dataset.k, el);
 });
 document.addEventListener('change',e=>{
