@@ -2936,7 +2936,7 @@ function handle(act,k,el){
     case 'lvtest': { livePublish(); toast(liveStatusText()); render(); break; }
     case 'savecloud': {
       S.cfg.cloud={url:$('[data-inp="curl"]').value.trim(), key:$('[data-inp="ckey"]').value.trim()};
-      S.cfgU=Date.now(); cloudConf(); save(); cloudStart(); render();
+      cloudConf(); save(); cloudStart(); render();
       toast(cloud.on?'Conectando…':'Faltan datos'); break;
     }
     case 'connect': connectModal(); break;
@@ -2949,7 +2949,7 @@ function handle(act,k,el){
         if(!u||!k) return toast(T('Pega el enlace o los dos datos','请粘贴链接或填写两项'));
         S.cfg.cloud={url:u.trim(),key:k.trim()};
       }
-      S.cfgU=Date.now(); cloudConf(); save(); closeModal(); cloudStart(); render();
+      cloudConf(); save(); closeModal(); cloudStart(); render();
       toast(cloud.on?T('Conectando… mira el estado','连接中…看状态'):T('Faltan datos','数据不全'));
       setTimeout(()=>{ if(cloud.on&&!cloud.err) toast(T('Conectada ✓','已连接 ✓')); },1500);
       break; }
