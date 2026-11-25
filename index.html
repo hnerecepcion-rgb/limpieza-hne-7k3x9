@@ -3137,7 +3137,7 @@ cloudStart();
 liveStart();
 setInterval(tick,1000);
 setInterval(()=>{ if(document.visibilityState==='visible') renderIfIdle(); },20000);
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ cloudPull().then(()=>render()); } });
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ cloudPull().then(()=>renderIfIdle()); } });
 window.addEventListener('beforeunload',()=>{ try{localStorage.setItem(LSKEY,JSON.stringify(S))}catch(e){} });
 if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
   window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
