@@ -349,6 +349,8 @@ tr.rowdone td{background:#f6fdf8}
   html,body{background:#fff !important}
   #app,.topbar,.tabs,.sosfab,#modals,#toast{display:none !important}
   #printArea{display:block !important;font-family:Arial,Helvetica,sans-serif;color:#000}
+  #printArea th{text-transform:none !important;letter-spacing:0 !important}
+  #printArea table{box-sizing:border-box}
 }
 </style>
 </head>
@@ -1459,6 +1461,96 @@ function exportChecks(all){
   downloadBytes('REVISION_'+TODAY()+'.xlsx',bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   toast('Excel de revisión descargado · 已导出');
 }
+function printReparto(k){
+  const day=S.days[k]; if(!day||!Object.keys(day.assign||{}).length){ toast(T('Primero reparte las habitaciones','请先自动分配房间')); return; }
+  const people=S.cfg.cleaners.filter(c=>c.active&&!(day.rest||[]).includes(c.id));
+  const cols=people.map(c=>{
+    const rooms=myRooms(day,c.id);
+    const zs=(S.cfg.zones||[]).filter(z=>day.zones&&day.zones[z.id]&&day.zones[z.id].assignee===c.id);
+    const pts=rooms.reduce((a,r)=>a+weight(day.status[r.no]),0);
+    return {c,rooms,zs,pts};
+  }).filter(x=>x.rooms.length||x.zs.length);
+  const unassigned=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no])&&!day.assign[r.no]);
+  const totCO=ROOMS.filter(r=>day.status[r.no]==='CO').length, totX=ROOMS.filter(r=>day.status[r.no]==='X').length;
+  const restN=(day.rest||[]).map(id=>cleaner(id)).filter(Boolean).map(c=>c.name+(c.alias?' '+c.alias:''));
+  const fs=cols.length>5?'8.5pt':'9.5pt';
+  const box='<span style="display:inline-block;width:3mm;height:3mm;border:1px solid #333;margin-right:1.5mm;vertical-align:-0.3mm"></span>';
+  let t='<table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead><tr>';
+  cols.forEach(x=>{ t+='<th style="background:#0e1c3d;color:#fff;border:1px solid #0e1c3d;padding:2mm;text-align:left;vertical-align:top">'+
+    '<div style="font-size:11.5pt">'+esc(x.c.name)+'</div><div style="font-size:8pt;font-weight:400">'+esc(x.c.alias||'')+'</div>'+
+    '<div style="font-size:8pt;font-weight:400;margin-top:1mm">'+x.rooms.length+' hab · '+x.pts.toFixed(1)+' pts</div></th>'; });
+  t+='</tr></thead><tbody><tr>';
+  cols.forEach(x=>{
+    let cell='', lastF=null;
+    x.rooms.forEach(r=>{
+      if(r.floor!==lastF){ cell+='<div style="font-size:7.5pt;color:#555;margin:'+(lastF===null?'0':'2mm')+' 0 0.5mm;border-bottom:1px solid #ddd">'+r.floor+'ª planta · '+r.floor+' 楼</div>'; lastF=r.floor; }
+      const st=day.status[r.no];
+      cell+='<div style="font-size:'+fs+';padding:0.6mm 0;white-space:nowrap">'+box+'<b>'+r.no+'</b> '+
+        (st==='CO'?'<b>CO</b> 退房':'<span style="color:#444">X 续房</span>')+'</div>';
+    });
+    if(x.zs.length){
+      cell+='<div style="font-size:7.5pt;color:#555;margin:2.5mm 0 0.5mm;border-bottom:1px solid #ddd">Zonas comunes · 公共区域</div>';
+      x.zs.forEach(z=>{ cell+='<div style="font-size:'+fs+';padding:0.6mm 0">'+box+esc(z.name)+'</div>'; });
+    }
+    t+='<td style="border:1px solid #c8d0dd;padding:2mm;vertical-align:top">'+cell+'</td>';
+  });
+  t+='</tr></tbody></table>';
+  const html='<div style="font-family:Arial,Helvetica,sans-serif;color:#111">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #0e1c3d;padding-bottom:2mm;margin-bottom:3mm">'+
+      '<div><div style="font-size:16pt;font-weight:800;letter-spacing:.5px">HOTEL NUEVA EUROPA</div>'+
+      '<div style="font-size:9pt;color:#555;margin-top:1mm">Reparto de habitaciones · 今日排房</div></div>'+
+      '<div style="text-align:right;font-size:9.5pt">'+esc(fechaLarga(k))+'<br><span style="color:#555;font-size:8.5pt">Impreso '+hhmm(Date.now())+'</span></div>'+
+    '</div>'+
+    '<div style="font-size:9.5pt;margin-bottom:3mm">Salidas CO 退房: <b>'+totCO+'</b> · Clientes X 续房: <b>'+totX+'</b> · Total: <b>'+(totCO+totX)+'</b>'+
+      (restN.length?' · Descanso 休息: <b>'+esc(restN.join(', '))+'</b>':'')+'</div>'+
+    t+
+    (unassigned.length?'<div style="font-size:9.5pt;margin-top:3mm;color:#b91c1c"><b>Sin asignar · 未分配 ('+unassigned.length+'):</b> '+unassigned.map(r=>r.no+' '+day.status[r.no]).join(', ')+'</div>':'')+
+    '<div style="display:flex;gap:20mm;margin-top:10mm;font-size:9pt">'+
+      '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Firma recepción · 前台</div>'+
+      '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Gobernanta · 领班</div>'+
+    '</div>'+
+  '</div>';
+  const pa=document.getElementById('printArea');
+  pa.innerHTML=html;
+  setTimeout(()=>{ window.print(); },150);
+}
+/* hoja individual: una página por empleada (cid=null → todas) */
+function printPersonal(k,cid){
+  const day=S.days[k]; if(!day||!Object.keys(day.assign||{}).length){ toast(T('Primero reparte las habitaciones','请先自动分配房间')); return; }
+  const people=S.cfg.cleaners.filter(c=>c.active&&!(day.rest||[]).includes(c.id)&&(!cid||c.id===cid));
+  const pages=people.map(c=>{
+    const rooms=myRooms(day,c.id);
+    const zs=(S.cfg.zones||[]).filter(z=>day.zones&&day.zones[z.id]&&day.zones[z.id].assignee===c.id);
+    if(!rooms.length&&!zs.length) return '';
+    const pts=rooms.reduce((a,r)=>a+weight(day.status[r.no]),0);
+    const nCO=rooms.filter(r=>day.status[r.no]==='CO').length, nX=rooms.length-nCO;
+    const td='style="border:1px solid #c8d0dd;padding:2.2mm 2.5mm;font-size:11pt"';
+    const th=w=>'style="background:#0e1c3d;color:#fff;border:1px solid #0e1c3d;padding:2mm 2.5mm;font-size:9pt;text-align:left;'+(w?'width:'+w:'')+'"';
+    let rows='', lastF=null;
+    rows=rooms.map(r=>{
+      const st=day.status[r.no];
+      return '<tr><td '+td+'><b style="font-size:13pt">'+r.no+'</b></td><td '+td+'>'+r.floor+'</td>'+
+        '<td '+td+'>'+(st==='CO'?'<b>CO · Salida · 退房</b>':'X · Cliente · 续房')+'</td>'+
+        '<td '+td+'>'+esc(r.type||'')+'</td><td '+td+'></td><td '+td+'></td></tr>';
+    }).join('');
+    const zrows=zs.map(z=>'<tr><td style="border:1px solid #c8d0dd;padding:2.2mm 2.5mm;font-size:11pt;width:118mm"><b>'+esc(z.name)+'</b><div style="font-size:8.5pt;color:#555">'+esc(z.es||'')+'</div></td><td style="border:1px solid #c8d0dd;width:18mm"></td><td style="border:1px solid #c8d0dd"></td></tr>').join('');
+    return '<div style="font-family:Arial,Helvetica,sans-serif;color:#111;page-break-after:always;break-after:page">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #0e1c3d;padding-bottom:2mm;margin-bottom:4mm">'+
+        '<div><div style="font-size:9pt;color:#555">HOTEL NUEVA EUROPA · Mis habitaciones · 我的房间</div>'+
+        '<div style="font-size:22pt;font-weight:800;margin-top:1mm">'+esc(c.name)+' <span style="font-size:13pt;font-weight:400;color:#555">'+esc(c.alias||'')+'</span></div></div>'+
+        '<div style="text-align:right;font-size:10pt">'+esc(fechaLarga(k))+'<br><span style="font-size:9pt;color:#555">'+esc(S.cfg.workStart||'')+'–'+esc(S.cfg.workEnd||'')+'</span></div>'+
+      '</div>'+
+      '<div style="font-size:10.5pt;margin-bottom:3mm"><b>'+rooms.length+'</b> habitaciones 间 · CO 退房 <b>'+nCO+'</b> · X 续房 <b>'+nX+'</b> · '+pts.toFixed(1)+' pts</div>'+
+      (rooms.length?'<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse"><thead><tr><th '+th('19mm')+'>Hab. 房号</th><th '+th('15mm')+'>Planta 楼</th><th '+th('44mm')+'>Estado 状态</th><th '+th('22mm')+'>Tipo 房型</th><th '+th('18mm')+'>Hecho ✓</th><th '+th('')+'>Nota 备注</th></tr></thead><tbody>'+rows+'</tbody></table>':'')+
+      (zs.length?'<div style="font-size:11pt;font-weight:700;margin:6mm 0 2mm">Zonas comunes · 公共区域</div><table style="width:100%;table-layout:fixed;border-collapse:collapse"><tbody>'+zrows+'</tbody></table>':'')+
+      '<div style="font-size:8pt;color:#777;margin-top:8mm">Impreso '+hhmm(Date.now())+' · HNE Limpieza</div>'+
+    '</div>';
+  }).filter(Boolean);
+  if(!pages.length){ toast(T('No tiene habitaciones hoy','今天没有分到房间')); return; }
+  const pa=document.getElementById('printArea');
+  pa.innerHTML=pages.join('');
+  setTimeout(()=>{ window.print(); },150);
+}
 function printParte(k){
   const day=S.days[k]; if(!day){ toast('Sin datos'); return; }
   const ch=day.checks||{};
@@ -1803,6 +1895,10 @@ function roomCard(day,r,role){
       '<div class="rtype">'+esc(TYPES[r.type].zh)+'</div></div>'+
       '<div style="text-align:right"><span class="badge '+(st==='CO'?'b-co':'b-x')+'">'+(st==='CO'?'退房 CO':'续房 X')+'</span>'+
       '<div style="font-size:10.5px;color:#8b96ab;margin-top:4px">工作量 '+(st==='CO'?'1':'0.5')+'</div></div></div>';
+  if(st==='CO'&&t.status==='pending'){
+    h+=t.out?'<div style="margin-top:8px;padding:8px 10px;border-radius:10px;background:#e8f7ee;color:#15803d;font-weight:800;font-size:13.5px">✅ 客人已走，可以打扫 <span style="font-weight:600;font-size:12px;opacity:.8">· '+hhmm(t.out)+'</span></div>'
+      :'<div style="margin-top:8px;padding:7px 10px;border-radius:10px;background:#f4f6fa;color:#6b7890;font-size:12.5px">⏳ 客人可能还没走 · 等前台通知</div>';
+  }
   if(t.status==='done'){
     h+='<div class="done-line">✓ <span>已打扫 · 干净</span>'+
        '<span style="margin-left:auto;font-weight:800">'+S.cfg.workStart+' → '+hhmm(round&&round.end?round.end:Date.now())+'</span></div>'+
@@ -2011,6 +2107,34 @@ function renderAdmin(app){
   app.innerHTML=h;
 }
 
+/* ---------- Salidas: avisar que el cliente ya se fue · 客人已退房 ---------- */
+function adminSalidas(k,day){
+  if(!day||!day.published) return '';
+  UI.outSel=UI.outSel||{};
+  const co=ROOMS.filter(r=>day.status[r.no]==='CO'&&!(day.tasks[r.no]&&day.tasks[r.no].status==='done'));
+  const wait=co.filter(r=>!(day.tasks[r.no]&&day.tasks[r.no].out));
+  const gone=co.filter(r=>day.tasks[r.no]&&day.tasks[r.no].out);
+  if(!co.length) return '';
+  const nSel=wait.filter(r=>UI.outSel[r.no]).length;
+  let h='<div class="card"><div class="card-h"><h3>🚪 '+T('Clientes que ya se han ido','客人已退房')+'</h3><span class="sub">'+T('pendientes','等待中')+' '+wait.length+'</span></div>';
+  if(wait.length){
+    h+='<div style="font-size:12.5px;color:#5d6b83;margin-bottom:8px">'+T('Toca las habitaciones que ya están libres y pulsa Avisar. A cada empleada le llega solo lo suyo.','点选客人已经走了的房间，再点"通知"。每个清洁员只会收到她自己的房间。')+'</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:7px">'+wait.map(r=>{
+      const on=!!UI.outSel[r.no]; const c=cleaner(day.assign[r.no]);
+      return '<button class="btn btn-sm '+(on?'btn-primary':'btn-ghost')+'" data-act="outsel" data-k="'+r.no+'" style="min-width:72px">'+(on?'✓ ':'')+r.no+
+        '<span style="display:block;font-size:10px;font-weight:600;opacity:.75">'+(c?esc(c.name):'—')+'</span></button>';
+    }).join('')+'</div>';
+    h+='<div class="btnrow" style="margin-top:10px"><button class="btn btn-gold" data-act="outsend" '+(nSel?'':'disabled')+'>📢 '+T('Avisar: se puede limpiar','通知可以打扫')+(nSel?' ('+nSel+')':'')+'</button>'+
+      (wait.length>1?'<button class="btn btn-ghost" data-act="outall">'+T('Seleccionar todas','全选')+'</button>':'')+'</div>';
+  } else h+='<div style="font-size:13px;color:#15803d;font-weight:700">'+T('Todas las salidas avisadas ✓','退房的都已经通知 ✓')+'</div>';
+  if(gone.length){
+    h+='<div style="font-size:11.5px;color:#7b8aa5;margin:12px 0 6px">'+T('Ya avisadas (toca ✕ para deshacer)','已通知（点 ✕ 撤销）')+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+
+      gone.map(r=>'<span class="badge b-ok" style="font-size:12px;padding:5px 9px">'+r.no+' · '+hhmm(day.tasks[r.no].out)+
+        ' <b data-act="outundo" data-k="'+r.no+'" style="cursor:pointer;margin-left:4px">✕</b></span>').join('')+'</div>';
+  }
+  h+='</div>';
+  return h;
+}
 function adminHoy(k,day){
   if(!day) return '<div class="empty"><div class="ic">🗓</div>Aún no hay reparto para este día.<br><span style="font-size:12.5px">Ve a <b>Planificar</b> para marcar CO / X y repartir.</span></div>'+
     '<button class="btn btn-primary btn-block" data-act="tab" data-k="plan">Ir a Planificar · 去排房</button>';
@@ -2041,6 +2165,7 @@ function adminHoy(k,day){
   if(miss.length&&nowM>=stM+10){
     h+='<div class="danger-note" style="margin-bottom:12px">⚠️ Sin fichar: <b>'+miss.map(a=>esc(a.c.name)).join(', ')+'</b> · 还没打卡</div>';
   }
+  h+=adminSalidas(k,day);
 
   // avisos
   h+='<div class="card tight" style="margin-bottom:14px"><div class="card-h"><h3>📢 '+T('Avisos a las empleadas','发给员工的通知')+'</h3><span class="sub">'+(UI.lang==='zh'?'手机上立刻看到':'她们手机上立刻看到')+'</span></div>'+
@@ -2187,7 +2312,8 @@ function adminPlan(k,day){
   h+='<div class="tw" style="border:none"><table class="tt" style="min-width:0"><thead><tr><th>'+T('Empleada','员工')+'</th><th>Hab</th><th>Pts</th><th>'+T('Objetivo','目标')+'</th><th></th></tr></thead><tbody>';
   active.forEach(c=>{
     const tg=quotaMap(active,W)[c.id];
-    h+='<tr><td><b style="color:'+c.color+'">'+esc(c.name)+'</b> <span style="color:#93a0b6;font-size:11px">×'+c.factor+'</span></td>'+
+    h+='<tr><td><b style="color:'+c.color+'">'+esc(c.name)+'</b> <span style="color:#93a0b6;font-size:11px">×'+c.factor+'</span>'+
+      (cnt[c.id]?' <span data-act="printone" data-k="'+c.id+'" title="Imprimir su hoja · 打印她的表" style="cursor:pointer;font-size:13px">🖨</span>':'')+'</td>'+
       '<td class="mono">'+cnt[c.id]+'</td><td class="mono"><b>'+load[c.id].toFixed(1)+'</b></td>'+
       '<td class="mono" style="color:#7b8aa5">'+tg+'</td>'+
       '<td>'+(Math.abs(load[c.id]-tg)<=0.01?'<span class="badge b-ok">OK</span>':(Math.abs(load[c.id]-tg)<=1.01?'<span class="badge b-v">≈</span>':'<span class="badge b-x">'+((load[c.id]-tg)>0?'+':'')+(load[c.id]-tg).toFixed(1)+'</span>'))+'</td></tr>';
@@ -2196,6 +2322,8 @@ function adminPlan(k,day){
   h+='<div class="btnrow" style="margin-top:12px">'+
      '<button class="btn btn-primary" data-act="autassign">⚙️ '+T('Repartir automático','自动分配')+'</button>'+
      '<button class="btn '+(d.published?'btn-ghost':'btn-gold')+'" data-act="publish">'+(d.published?T('✓ Publicado (republicar)','✓ 已发布（重新发布）'):T('📢 Publicar a las empleadas','📢 发布给员工'))+'</button>'+
+     (Object.keys(d.assign||{}).length?'<button class="btn btn-ghost" data-act="printrep">🖨 '+T('Imprimir reparto','打印总排房表')+'</button>'+
+       '<button class="btn btn-ghost" data-act="printeach">🖨 '+T('Una hoja por persona','每人一张')+'</button>':'')+
      '</div>';
   h+='<div class="note" style="margin-top:10px"><b>'+T('Orden por plantas','楼层顺序')+':</b> '+esc(floorOrderText())+'.<br>'+T('Primero limpia la dueña de su planta; si no llega o descansa, pasa a la siguiente de la lista. Liquan hace la mitad de carga (×0.5, se cambia en Equipo). '+(xWeightVal()===1?'X cuenta como CO.':'2 X = 1 CO.'),'先由本层负责人清扫；不够或有人休息时，按名单顺序往下排。Liquan 做一半工作量（×0.5，可在员工里改）。'+(xWeightVal()===1?'X 算 1 间':'2 个 X = 1 间 CO')+'。')+'</div>';
   h+='</div>';
@@ -2278,13 +2406,14 @@ function adminSet(k,day){
 
   h+='<div class="card"><div class="card-h"><h3>'+T('Zonas comunes','公共区域')+'</h3><span class="sub">公共区域</span></div>';
   S.cfg.zones.forEach(z=>{
-    const o=cleaner(z.owner);
-    h+='<div class="list-row"><div class="g"><div class="t" style="font-size:13.5px">'+esc(z.name)+'</div><div class="s">'+esc(z.es)+'</div></div>'+
+    h+='<div class="list-row"><div class="g"><div class="t" style="font-size:13.5px">'+esc(z.name)+'</div><div class="s">'+esc(z.es||'')+'</div></div>'+
       '<select class="inp" style="width:110px;padding:7px" data-zone="'+z.id+'">'+
       S.cfg.cleaners.filter(c=>c.active).map(c=>'<option value="'+c.id+'" '+(z.owner===c.id?'selected':'')+'>'+esc(c.name)+'</option>').join('')+
-      '</select></div>';
+      '</select>'+
+      '<button class="btn btn-sm btn-ghost" data-act="editzone" data-k="'+z.id+'" style="margin-left:6px" title="Editar">✏️</button></div>';
   });
-  h+='<div style="font-size:11.5px;color:#7b8aa5;margin-top:8px">Cambiar el responsable aquí no toca los días ya publicados.</div></div>';
+  h+='<div class="btnrow" style="margin-top:10px"><button class="btn btn-ghost" data-act="editzone" data-k="">＋ '+T('Añadir zona','添加公共区域')+'</button></div>';
+  h+='<div style="font-size:11.5px;color:#7b8aa5;margin-top:8px">'+T('Elige quién hace cada zona. Los cambios se aplican también a hoy si ya está repartido.','每个区域选谁负责。改动会同步到今天已经排好的表。')+'</div></div>';
 
   h+='<div class="card"><div class="card-h"><h3>'+T('Trabajos extras','额外工作')+'</h3><span class="sub">+puntos</span></div>';
   S.cfg.extras.forEach(e=>{
@@ -2481,6 +2610,30 @@ function openCleaner(cid){
         '<div class="s">'+(t.status==='done'?'✓ '+hhmm(t.rounds[t.rounds.length-1].end):t.status==='doing'?'en curso':'pendiente')+'</div></div></div>';});
   }
   openModal(h);
+}
+function openEditZone(zid){
+  const z=zid?(S.cfg.zones||[]).find(x=>x.id===zid):{name:'',es:'',owner:''};
+  if(!z) return;
+  const opts=S.cfg.cleaners.filter(c=>c.active).map(c=>'<option value="'+c.id+'" '+(z.owner===c.id?'selected':'')+'>'+esc(c.name)+(c.alias?' '+esc(c.alias):'')+'</option>').join('');
+  let h='<div class="sheet-h"><h3>'+(zid?T('Editar zona','编辑公共区域'):T('Nueva zona','添加公共区域'))+'</h3><button class="x" data-act="close">✕</button></div>'+
+    '<label class="lb">Nombre en chino · 中文名称</label><input class="inp" id="zName" value="'+esc(z.name)+'" placeholder="例如：前台大厅 · 拖地">'+
+    '<label class="lb">Nombre en español · 西语名称</label><input class="inp" id="zEs" value="'+esc(z.es||'')+'" placeholder="Ej.: Hall: fregar">'+
+    '<label class="lb">Quién la hace · 谁负责</label><select class="inp" id="zOwner">'+opts+'</select>'+
+    '<div class="btnrow" style="margin-top:14px"><button class="btn btn-primary" data-act="savezone" data-k="'+(zid||'')+'">'+T('Guardar','保存')+'</button>'+
+    (zid?'<button class="btn btn-danger" data-act="delzone" data-k="'+zid+'">'+T('Eliminar','删除')+'</button>':'')+'</div>';
+  openModal(h);
+}
+/* aplica la lista de zonas al día de hoy si ya está repartido (sin tocar lo terminado) */
+function syncZonesToday(){
+  const k=TODAY(), day=S.days[k]; if(!day||!day.zones||!Object.keys(day.assign||{}).length) return;
+  const ids=(S.cfg.zones||[]).map(z=>z.id);
+  Object.keys(day.zones).forEach(id=>{ if(!ids.includes(id)&&day.zones[id].status==='pending') delete day.zones[id]; });
+  (S.cfg.zones||[]).forEach(z=>{
+    const t=day.zones[z.id];
+    if(!t) day.zones[z.id]={assignee:z.owner||null,status:'pending',rounds:[],obs:'',photos:[],u:Date.now()};
+    else if(t.status==='pending'&&z.owner&&t.assignee!==z.owner){ t.assignee=z.owner; t.u=Date.now(); }
+  });
+  day.cfgU=Date.now();
 }
 function openEditCleaner(cid){
   const c=cid?cleaner(cid):{name:'',alias:'',pin:'',floors:[],factor:1,color:COLORS[S.cfg.cleaners.length%COLORS.length],active:true};
@@ -2946,6 +3099,18 @@ function handle(act,k,el){
       else { S.cfg.cleaners.push({id:uid('c'),name,alias,pin,factor,floors,color:COLORS[S.cfg.cleaners.length%COLORS.length],active:true,u:Date.now()}); }
       S.cfgU=Date.now(); save(); closeModal(); render(); toast('Guardado'); break;
     }
+    case 'editzone': openEditZone(k||null); break;
+    case 'savezone': {
+      const name=$('#zName').value.trim(); if(!name) return toast(T('Falta el nombre','请填写名称'));
+      const es=$('#zEs').value.trim(), owner=$('#zOwner').value;
+      if(k){ const z=S.cfg.zones.find(x=>x.id===k); if(z) Object.assign(z,{name,es,owner,u:Date.now()}); }
+      else S.cfg.zones.push({id:uid('z'),name,es,owner,u:Date.now()});
+      S.cfgU=Date.now(); syncZonesToday(); save(); closeModal(); render(); toast(T('Guardado','已保存')); break;
+    }
+    case 'delzone': {
+      S.cfg.zones=S.cfg.zones.filter(x=>x.id!==k);
+      S.cfgU=Date.now(); syncZonesToday(); save(); closeModal(); render(); toast(T('Zona eliminada','已删除')); break;
+    }
     case 'delcleaner': {
       const c=cleaner(k); if(!c) return;
       const used=Object.values(S.days).some(d=>Object.values(d.assign||{}).includes(k)||Object.values(d.tasks||{}).some(t=>t.assignee===k));
@@ -2962,6 +3127,29 @@ function handle(act,k,el){
     case 'chkgo': saveCheck(k, el.dataset.v); break;
     case 'chkundo': { const d=ensureDay(UI.sessionAdminDate()); if(d.checks) delete d.checks[k]; save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
+    case 'printrep': printReparto(UI.date); break;
+    case 'outsel': { UI.outSel=UI.outSel||{}; if(UI.outSel[k]) delete UI.outSel[k]; else UI.outSel[k]=1; render(); break; }
+    case 'outall': { const d=S.days[UI.sessionAdminDate()]; if(!d) break; UI.outSel={};
+      ROOMS.forEach(r=>{ const t=d.tasks[r.no]; if(d.status[r.no]==='CO'&&!(t&&(t.out||t.status==='done'))) UI.outSel[r.no]=1; }); render(); break; }
+    case 'outsend': {
+      const kk=UI.sessionAdminDate(), d=S.days[kk]; if(!d) break;
+      const by={}; let n=0;
+      Object.keys(UI.outSel||{}).forEach(no=>{
+        if(d.status[no]!=='CO') return;
+        const t=taskOf(d,no); if(t.out||t.status==='done') return;
+        t.out=Date.now(); t.u=Date.now(); n++;
+        const cid=d.assign[no]; if(cid){ (by[cid]=by[cid]||[]).push(no); }
+        logEv(d,null,'out',no,'Cliente salido · 客人已走');
+      });
+      UI.outSel={};
+      save();
+      Object.keys(by).forEach(cid=>{ const l=by[cid].join('、');
+        sendNotice('🚪 客人已走，可以打扫：'+l,'Ya han salido, podéis limpiar: '+by[cid].join(', '),cid); });
+      render(); toast(n?T('Avisado ✓','已通知 ✓')+' ('+n+')':T('Nada que avisar','没有要通知的房间')); break;
+    }
+    case 'outundo': { const d=S.days[UI.sessionAdminDate()]; if(!d) break; const t=d.tasks[k]; if(t&&t.out){ delete t.out; t.u=Date.now(); save(); render(); } break; }
+    case 'printeach': printPersonal(UI.date,null); break;
+    case 'printone': printPersonal(UI.date,k); break;
     case 'xls-check': exportChecks(false); break;
     case 'xls-check-all': exportChecks(true); break;
     case 'xls-today': exportIssues(false); break;
@@ -3104,7 +3292,7 @@ document.addEventListener('change',e=>{
   if(el.dataset.inp==='date'){ UI.date=el.value||TODAY(); render(); return; }
   if(el.dataset.inp==='findday'){ const v=el.value||TODAY(); UI.date=v; closeModal(); UI.tab='hoy'; render();
     toast(dayStats(v)?fechaLarga(v):T('Ese día no tiene registro','那天没有记录')); return; }
-  if(el.dataset.zone){ const z=S.cfg.zones.find(x=>x.id===el.dataset.zone); if(z){z.owner=el.value; z.u=Date.now(); S.cfgU=Date.now(); save(); toast('Responsable actualizado');} return; }
+  if(el.dataset.zone){ const z=S.cfg.zones.find(x=>x.id===el.dataset.zone); if(z){z.owner=el.value; z.u=Date.now(); S.cfgU=Date.now(); syncZonesToday(); save(); toast(T('Responsable actualizado','已更新负责人'));} return; }
   if(el.dataset.cphoto){
     const files=Array.from(el.files||[]).slice(0,4);
     if(!files.length||!CHKREF) return;
