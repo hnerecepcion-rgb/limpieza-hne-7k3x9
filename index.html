@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -509,9 +510,15 @@ function ensureDay(k){
   return S.days[k];
 }
 function dayOrNull(k){ return S.days[k]||null }
+/* habitación compartida por dos (suite de 2 camas): day.pair[no] = la segunda persona */
+function isMine(day,no,cid){ return !!day&&(day.assign[no]===cid||(!!day.pair&&day.pair[no]===cid)); }
+function partnerOf(day,no,cid){ if(!day||!day.pair||!day.pair[no]) return null; return day.assign[no]===cid?day.pair[no]:day.assign[no]; }
+const LIQUAN_SUITES=['8316','8317'];
+function suiteOwnerId(){ if(S.cfg.suiteOwner) return S.cfg.suiteOwner; const c=S.cfg.cleaners.find(x=>String(x.login||'').toLowerCase()==='liquan'); return c?c.id:'c5'; }
+function typeGroup(t){ return (t==='DOBLE'||t==='DELUX'||t==='BALCON')?'D':(t==='TWIN'?'T':'S'); }
 function myRooms(day,cid){
   if(!day) return [];
-  return ROOMS.filter(r=>day.assign[r.no]===cid && ['CO','X'].includes(day.status[r.no]));
+  return ROOMS.filter(r=>isMine(day,r.no,cid) && ['CO','X'].includes(day.status[r.no]));
 }
 function taskOf(day,no){
   if(!day.tasks[no]) day.tasks[no]={assignee:day.assign[no]||null,status:'pending',rounds:[],obs:'',photos:[],check:null,u:Date.now()};
@@ -535,7 +542,7 @@ function lateMinutes(k,cid){
 function currentTimer(day,cid){
   // cual es la tarea con el cronómetro corriendo
   for(const no in day.tasks){ const t=day.tasks[no];
-    if(t.assignee===cid && t.status==='doing'){ const r=t.rounds[t.rounds.length-1]; if(r&&!r.end) return {kind:'room',key:no,r}; } }
+    if((t.assignee===cid||isMine(day,no,cid)) && t.status==='doing'){ const r=t.rounds[t.rounds.length-1]; if(r&&!r.end&&(!r.by||r.by===cid||t.assignee===cid)) return {kind:'room',key:no,r}; } }
   for(const z in day.zones){ const t=day.zones[z];
     if(t.assignee===cid && t.status==='doing'){ const r=t.rounds[t.rounds.length-1]; if(r&&!r.end) return {kind:'zone',key:z,r}; } }
   for(const e in day.extras){ const t=day.extras[e];
@@ -604,16 +611,89 @@ function quotaMap(active,W){
   while(diff<0 && i<800){ const c=order[i%order.length]; if(q[c.id]>0){ q[c.id]--; diff++; } i++; }
   return q;
 }
+/* Las suites compartidas se prueban con distintas parejas y se queda el reparto más parejo
+   (carga, máximo 2 plantas y tipos de habitación). */
 function autoAssign(k){
   const day=ensureDay(k);
   const active=activeCleaners(day);
-  const rooms=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no]));
-  const W=rooms.reduce((s,r)=>s+weight(day.status[r.no]),0);
+  const base=autoAssignCore(k,{});
+  const sharedNos=Object.keys(day.pair||{});
+  if(!sharedNos.length||active.length<3) return base;
+  const score=res=>{
+    const d=S.days[k]; const ld={}, fl={}, mix={};
+    active.forEach(c=>{ ld[c.id]=0; fl[c.id]=new Set(); mix[c.id]={}; });
+    ROOMS.forEach(r=>{ if(!['CO','X'].includes(d.status[r.no])) return;
+      [d.assign[r.no],d.pair&&d.pair[r.no]].forEach(c=>{ if(!c||ld[c]===undefined) return; ld[c]+=weight(d.status[r.no]); fl[c].add(r.floor);
+        const g=typeGroup(r.type); if(g!=='S'){ const key=g+d.status[r.no]; mix[c][key]=(mix[c][key]||0)+1; } }); });
+    let sc=0;
+    active.forEach(c=>{ const dv=ld[c.id]-res.target[c.id]; sc+=(c.id===suiteOwnerId()?Math.max(0,-dv):Math.abs(dv))*10; if(fl[c.id].size>2) sc+=1000; });
+    ['DCO','DX','TCO','TX'].forEach(key=>{ const v=active.filter(c=>(c.factor||1)===1).map(c=>mix[c.id][key]||0); if(v.length) sc+=Math.max(...v)-Math.min(...v); });
+    return sc;
+  };
+  const ids=active.map(c=>c.id);
+  let force={}; sharedNos.forEach(no=>{ force[no]=[day.assign[no],day.pair[no]]; });
+  let bestSc=score(base), bestForce=JSON.parse(JSON.stringify(force));
+  const t0=Date.now();
+  for(let pass=0; pass<2; pass++){
+    let improved=false;
+    for(const no of sharedNos){
+      for(let i=0;i<ids.length;i++) for(let j=i+1;j<ids.length;j++){
+        if(Date.now()-t0>4000) break;
+        const f=JSON.parse(JSON.stringify(bestForce)); f[no]=[ids[i],ids[j]];
+        if(LIQUAN_SUITES.includes(no)){ const o=LIQUAN_SUITES.find(x=>x!==no); if(f[o]&&(f[o].includes(ids[i])||f[o].includes(ids[j]))) continue; }
+        const res=autoAssignCore(k,{force:f}); const sc=score(res);
+        if(sc<bestSc-1e-9){ bestSc=sc; bestForce=f; improved=true; }
+      }
+    }
+    if(!improved) break;
+  }
+  return autoAssignCore(k,{force:bestForce});
+}
+function autoAssignCore(k,opts){
+  opts=opts||{};
+  const day=ensureDay(k);
+  const active=activeCleaners(day);
+  const allRooms=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no]));
+  /* suites 8316 / 8317: de Liquan. Si no está, se comparten entre dos (2 camas cada una).
+     Suite de 2 camas (8111, 8211): siempre dos personas. */
+  const owner=active.find(c=>c.id===suiteOwnerId());
+  const ownerRooms=owner?allRooms.filter(r=>LIQUAN_SUITES.includes(r.no)):[];
+  const shared=allRooms.filter(r=>r.type==='SUITE2'||(!owner&&LIQUAN_SUITES.includes(r.no)));
+  const rooms=allRooms.filter(r=>!ownerRooms.includes(r)&&!shared.includes(r));
+  const W=allRooms.reduce((s,r)=>s+weight(day.status[r.no]),0)+shared.reduce((s,r)=>s+weight(day.status[r.no]),0);
   const F=active.reduce((s,c)=>s+(c.factor||1),0)||1;
-  const target={}, load={}, count={}, assign={};
+  const target={}, load={}, count={}, assign={}, pair={};
   const QM=quotaMap(active,W);
   active.forEach(c=>{ target[c.id]=QM[c.id]; load[c.id]=0; count[c.id]=0; });
-  if(!active.length){ day.assign={}; return {W,active,load,count,target}; }
+  if(!active.length){ day.assign={}; day.pair={}; return {W,active,load,count,target}; }
+  ownerRooms.forEach(r=>{ const w=weight(day.status[r.no]); assign[r.no]=owner.id; load[owner.id]+=w; count[owner.id]++; });
+  /* primero las suites de la 3ª (las de Liquan), luego las de 2 camas */
+  shared.slice().sort((a,b)=>(LIQUAN_SUITES.includes(b.no)?1:0)-(LIQUAN_SUITES.includes(a.no)?1:0)||a.no.localeCompare(b.no)).forEach(r=>{
+    const w=weight(day.status[r.no]);
+    const used=allRooms.filter(x=>x.floor===r.floor&&x!==r&&shared.includes(x)).map(x=>[assign[x.no],pair[x.no]]).flat().filter(Boolean);
+    /* 8316 y 8317 sin Liquan: cada una con una pareja distinta */
+    const otherL=LIQUAN_SUITES.includes(r.no)?LIQUAN_SUITES.filter(x=>x!==r.no).map(x=>[assign[x],pair[x]]).flat().filter(Boolean):[];
+    const fixFl=cid=>{ const f=new Set(); allRooms.forEach(x=>{ if(x!==r&&(assign[x.no]===cid||pair[x.no]===cid)) f.add(x.floor); }); f.add(r.floor); return f.size; };
+    const cands=active.filter(c=>!(owner&&c.id===owner.id&&LIQUAN_SUITES.includes(r.no))&&!otherL.includes(c.id)&&fixFl(c.id)<=2)
+      .sort((a,b)=>{
+        /* repartir las suites: primero quien menos suites lleve */
+        const fa=floorRank(a,r.floor)<20?0:1, fb=floorRank(b,r.floor)<20?0:1;
+        if(fa!==fb) return fa-fb;
+        /* mejor quien no quede atada a dos plantas por suites */
+        const nf=cid=>{ const f=new Set(); allRooms.forEach(x=>{ if(x!==r&&(assign[x.no]===cid||pair[x.no]===cid)) f.add(x.floor); }); return f.size&&!f.has(r.floor)?1:0; };
+        if(nf(a.id)!==nf(b.id)) return nf(a.id)-nf(b.id);
+        const su=cid=>allRooms.filter(x=>x!==r&&(assign[x.no]===cid||pair[x.no]===cid)).length;
+        if(su(a.id)!==su(b.id)) return su(a.id)-su(b.id);
+        const ua=used.filter(x=>x===a.id).length, ub=used.filter(x=>x===b.id).length;
+        if(ua!==ub) return ua-ub;
+        return ((load[a.id]-target[a.id])-(load[b.id]-target[b.id])) || (floorRank(a,r.floor)-floorRank(b,r.floor));
+      });
+    let a=cands[0], b=cands[1];
+    if(opts.force&&opts.force[r.no]){ const f=opts.force[r.no].map(id=>active.find(c=>c.id===id)).filter(Boolean); if(f.length===2){ a=f[0]; b=f[1]; } }
+    if(!a) return;
+    assign[r.no]=a.id; load[a.id]+=w; count[a.id]++;
+    if(b){ pair[r.no]=b.id; load[b.id]+=w; count[b.id]++; }
+  });
 
   const interleave=a=>{
     const g={}; a.forEach(r=>{ (g[r.type]=g[r.type]||[]).push(r); });
@@ -747,12 +827,16 @@ function autoAssign(k){
   });
 
   /* 5) regla fija: cada persona como máximo 2 plantas · 每人最多 2 个楼层 */
-  const floorsOf=cid=>{ const f=new Set(); rooms.forEach(r=>{ if(assign[r.no]===cid) f.add(r.floor); }); return f; };
+  const floorsOf=cid=>{ const f=new Set(); allRooms.forEach(r=>{ if(assign[r.no]===cid||pair[r.no]===cid) f.add(r.floor); }); return f; };
   for(let guard=0; guard<120; guard++){
     const c=active.find(x=>floorsOf(x.id).size>2); if(!c) break;
     const fs=[...floorsOf(c.id)];
     const n=f=>rooms.filter(r=>r.floor===f&&assign[r.no]===c.id).length;
-    fs.sort((a,b)=> (n(b)-n(a)) || (floorRank(c,a)-floorRank(c,b)) );
+    /* plantas con suite fija o compartida van primero: esas no se pueden mover */
+    const fx=f=>allRooms.some(r=>r.floor===f&&!rooms.includes(r)&&(assign[r.no]===c.id||pair[r.no]===c.id))?1:0;
+    /* después, la planta que menos compañeras cubren (para no dejar una planta a una sola) */
+    const cov=f=>active.filter(o=>o.id!==c.id&&allRooms.some(r=>r.floor===f&&(assign[r.no]===o.id||pair[r.no]===o.id))).length;
+    fs.sort((a,b)=> (fx(b)-fx(a)) || (cov(a)-cov(b)) || (n(b)-n(a)) || (floorRank(c,a)-floorRank(c,b)) );
     const keep=fs.slice(0,2);
     const r=rooms.find(x=>assign[x.no]===c.id&&!keep.includes(x.floor)); if(!r) break;
     const w=weight(day.status[r.no]);
@@ -769,6 +853,26 @@ function autoAssign(k){
       const after=Math.abs(load[c.id]+wb-target[c.id])+Math.abs(load[dest.id]-wb-target[dest.id]);
       if(after<=before+1e-9){ assign[back.no]=c.id; load[c.id]+=wb; load[dest.id]-=wb; count[c.id]++; count[dest.id]--; }
     }
+  }
+
+  /* 5b) suites compartidas/fijas: si por ellas alguien pasa de 2 plantas, cambiar a esa persona */
+  for(let guard=0; guard<20; guard++){
+    let fixed=false;
+    [...shared].forEach(r=>{
+      ['a','b'].forEach(slot=>{
+        const m=slot==='a'?assign[r.no]:pair[r.no]; if(!m) return;
+        if(floorsOf(m).size<=2) return;
+        const other=slot==='a'?pair[r.no]:assign[r.no];
+        const w=weight(day.status[r.no]);
+        const otherL=LIQUAN_SUITES.includes(r.no)?LIQUAN_SUITES.filter(x=>x!==r.no).map(x=>[assign[x],pair[x]]).flat().filter(Boolean):[];
+        const rep=active.filter(c=>c.id!==m&&c.id!==other&&!otherL.includes(c.id)&&floorsOf(c.id).has(r.floor)&&floorsOf(c.id).size<=2)
+          .sort((x,y)=>(load[x.id]-target[x.id])-(load[y.id]-target[y.id]))[0];
+        if(!rep) return;
+        if(slot==='a') assign[r.no]=rep.id; else pair[r.no]=rep.id;
+        load[m]-=w; count[m]--; load[rep.id]+=w; count[rep.id]++; fixed=true;
+      });
+    });
+    if(!fixed) break;
   }
 
   /* 6) volver a cuadrar sin romper la regla de 2 plantas */
@@ -791,10 +895,95 @@ function autoAssign(k){
     if(!moved) break;
   }
 
+  /* 6b) cuadrar en cadena: si la que va de más y la que va de menos no comparten planta,
+        se pasa una habitación a través de otra compañera (A→B→C), sin abrir plantas nuevas */
+  for(let it=0; it<60; it++){
+    const arr=active.slice().sort((a,b)=>(load[b.id]-target[b.id])-(load[a.id]-target[a.id]));
+    const hi=arr[0], lo=arr[arr.length-1];
+    if(!hi||!lo||hi.id===lo.id) break;
+    if(load[hi.id]-target[hi.id]<0.75||target[lo.id]-load[lo.id]<0.75) break;
+    // buscar camino hi -> ... -> lo
+    const prev={}; prev[hi.id]=null; const q=[hi.id]; let found=false;
+    while(q.length&&!found){
+      const x=q.shift(); const fx=floorsOf(x);
+      for(const y of active){
+        if(prev.hasOwnProperty(y.id)) continue;
+        const fy=floorsOf(y.id);
+        const ok=rooms.some(r=>assign[r.no]===x&&(fy.has(r.floor)||fy.size<2));
+        if(!ok) continue;
+        prev[y.id]=x; if(y.id===lo.id){ found=true; break; } q.push(y.id);
+      }
+    }
+    if(!found) break;
+    const path=[]; let cur=lo.id; while(cur){ path.unshift(cur); cur=prev[cur]; }
+    let w=null, okAll=true; const moves=[];
+    for(let i=0;i<path.length-1;i++){
+      const x=path[i], y=path[i+1], fy=floorsOf(y);
+      const r=rooms.filter(r=>assign[r.no]===x&&(fy.has(r.floor)||fy.size<2)&&(w===null||Math.abs(weight(day.status[r.no])-w)<1e-9)&&!moves.some(m=>m.r===r))
+        .sort((a,b)=>floorRank(cleaner(y)||{},a.floor)-floorRank(cleaner(y)||{},b.floor))[0];
+      if(!r){ okAll=false; break; }
+      if(w===null) w=weight(day.status[r.no]);
+      moves.push({r,x,y});
+    }
+    if(!okAll||w===null) break;
+    if(Math.abs(load[hi.id]-w-target[hi.id])+Math.abs(load[lo.id]+w-target[lo.id]) >= Math.abs(load[hi.id]-target[hi.id])+Math.abs(load[lo.id]-target[lo.id])-1e-9) break;
+    moves.forEach(m=>{ assign[m.r.no]=m.y; count[m.x]--; count[m.y]++; });
+    load[hi.id]-=w; load[lo.id]+=w;
+  }
+
+  /* 7) tipos y estados parejos: dobles (doble/delux/balcón) CO y X, y 2 camas CO y X.
+        Se intercambian habitaciones del mismo peso sin abrir plantas nuevas. */
+  {
+    const sumT=active.reduce((a,c)=>a+target[c.id],0)||1;
+    const catOf=r=>{ const g=typeGroup(r.type); return g==='S'?null:g+'-'+day.status[r.no]; };
+    const cats=['D-CO','D-X','T-CO','T-X'];
+    const tot={}; cats.forEach(c=>tot[c]=rooms.filter(r=>catOf(r)===c).length);
+    const cnt={}; active.forEach(c=>{ cnt[c.id]={}; cats.forEach(x=>cnt[c.id][x]=0); });
+    rooms.forEach(r=>{ const c=catOf(r); if(c&&cnt[assign[r.no]]) cnt[assign[r.no]][c]++; });
+    const ideal=(cid,c)=>tot[c]*target[cid]/sumT;
+    const cost=(cid,c,n)=>{ const d=n-ideal(cid,c); return d*d; };
+    for(let it=0; it<300; it++){
+      let best=null, gain=1e-9;
+      for(let i=0;i<rooms.length;i++){
+        const a=rooms[i], ca=catOf(a); if(!ca) continue; const p=assign[a.no];
+        for(let j=i+1;j<rooms.length;j++){
+          const b=rooms[j], cb=catOf(b); if(!cb||cb===ca) continue; const q=assign[b.no];
+          if(p===q) continue;
+          if(Math.abs(weight(day.status[a.no])-weight(day.status[b.no]))>1e-9) continue;
+          if(a.floor!==b.floor){ if(!floorsOf(p).has(b.floor)||!floorsOf(q).has(a.floor)) continue; }
+          const before=cost(p,ca,cnt[p][ca])+cost(p,cb,cnt[p][cb])+cost(q,ca,cnt[q][ca])+cost(q,cb,cnt[q][cb]);
+          const after=cost(p,ca,cnt[p][ca]-1)+cost(p,cb,cnt[p][cb]+1)+cost(q,ca,cnt[q][ca]+1)+cost(q,cb,cnt[q][cb]-1);
+          const g=before-after; if(g>gain){ gain=g; best=[a,b,p,q,ca,cb]; }
+        }
+      }
+      if(!best) break;
+      const [a,b,p,q,ca,cb]=best;
+      assign[a.no]=q; assign[b.no]=p; cnt[p][ca]--; cnt[p][cb]++; cnt[q][ca]++; cnt[q][cb]--;
+    }
+  }
+
+  /* 8) si una de jornada completa (p. ej. Siya) lleva más que su cuota, lo que sobra se lo lleva Liquan,
+        no otra compañera (aunque Liquan pase de su mitad) */
+  if(owner){
+    for(let guard=0; guard<20; guard++){
+      const fOw=floorsOf(owner.id);
+      const over=active.filter(c=>c.id!==owner.id&&Math.abs((c.factor||1)-1)<0.01&&load[c.id]-target[c.id]>0.5)
+        .sort((a,b)=>(load[b.id]-target[b.id])-(load[a.id]-target[a.id]))[0];
+      if(!over) break;
+      const r=rooms.filter(x=>assign[x.no]===over.id&&(fOw.has(x.floor)||fOw.size<2))
+        .sort((a,b)=>floorRank(owner,a.floor)-floorRank(owner,b.floor))[0];
+      if(!r) break;
+      const w=weight(day.status[r.no]);
+      if(load[over.id]-w<target[over.id]-0.5) break;
+      assign[r.no]=owner.id; load[over.id]-=w; load[owner.id]+=w; count[over.id]--; count[owner.id]++;
+    }
+  }
+
   // guardar
   day.assign=assign;
+  day.pair=pair;
   day.tasks={};
-  rooms.forEach(r=>{
+  allRooms.forEach(r=>{
     day.tasks[r.no]={assignee:assign[r.no],status:'pending',rounds:[],obs:'',photos:[],check:null,u:Date.now()};
   });
   day.cfgU=Date.now();
@@ -854,7 +1043,7 @@ function startTask(k,kind,key,cid){
   if(t.assignee && t.assignee!==cid && kind==='extra'){ /* extra: se queda quien la cogió */ }
   if(t.status==='done'){ toast('Ya está terminada · 已完成'); return false; }
   if(t.status==='doing'){ toast('Ya está en marcha · 已经开始'); return false; }
-  if(kind!=='extra' && t.assignee!==cid){ toast('No es tu habitación · 不是你的房间'); return false; }
+  if(kind!=='extra' && t.assignee!==cid && !(kind==='room'&&isMine(day,key,cid))){ toast('No es tu habitación · 不是你的房间'); return false; }
   t.status='doing'; t.assignee=cid; t.u=Date.now();
   t.rounds=t.rounds||[]; t.rounds.push({start:Date.now(),end:null,by:cid});
   logEv(day,cid,'start',kind+':'+key,'');
@@ -898,7 +1087,7 @@ function setStatus(k,no,st){
 function workStartTs(k){ const [h,m]=S.cfg.workStart.split(':').map(Number); const d=parseKey(k); d.setHours(h,m,0,0); return d.getTime(); }
 function workEndTs(k){ const [h,m]=S.cfg.workEnd.split(':').map(Number); const d=parseKey(k); d.setHours(h,m,0,0); return d.getTime(); }
 function cleanerState(day,cid,now){
-  const rooms=ROOMS.filter(r=>day&&day.assign[r.no]===cid&&['CO','X'].includes(day.status[r.no]));
+  const rooms=ROOMS.filter(r=>day&&isMine(day,r.no,cid)&&['CO','X'].includes(day.status[r.no]));
   const done=rooms.filter(r=>day.tasks[r.no]&&day.tasks[r.no].status==='done');
   const doing=rooms.filter(r=>day.tasks[r.no]&&day.tasks[r.no].status==='doing');
   const wTotal=rooms.reduce((s,r)=>s+weight(day.status[r.no]),0);
@@ -976,7 +1165,7 @@ function mergeRemote(rem){
     const L=S.days[k]; const R=days[k];
     if(!L){ S.days[k]=R; changed=true; return; }
     if((R.cfgU||0)>(L.cfgU||0)){
-      L.status=R.status||L.status; L.assign=R.assign||L.assign; L.rest=R.rest||L.rest;
+      L.status=R.status||L.status; L.assign=R.assign||L.assign; L.pair=R.pair||{}; L.rest=R.rest||L.rest;
       L.published=R.published; L.cfgU=R.cfgU; changed=true;
     }
     if(!L.checks) L.checks={};
@@ -1462,7 +1651,7 @@ function resumeTask(k,kind,key,mode){
 }
 function openRestart(cid){
   const k=UI.sessionAdminDate(), day=ensureDay(k), c=cleaner(cid)||{name:''}, a=attOf(k,cid);
-  const rooms=ROOMS.filter(r=>day.assign[r.no]===cid&&['CO','X'].includes(day.status[r.no]));
+  const rooms=ROOMS.filter(r=>isMine(day,r.no,cid)&&['CO','X'].includes(day.status[r.no]));
   const done=rooms.filter(r=>{ const t=day.tasks&&day.tasks[r.no]; return t&&t.status==='done'; });
   let h='<div class="sheet-h"><h3>🔄 Reiniciar a '+esc(c.name)+' · 重启</h3><button class="x" data-act="close">✕</button></div>';
   h+='<div class="note" style="margin-bottom:12px">Si pulsó <b>打卡</b> o <b>FIN</b> sin querer. <b>No se borra nada</b>: se sigue contando desde donde estaba. · 点错了不要紧，记录不丢。</div>';
@@ -2122,7 +2311,8 @@ function roomCard(day,r,role){
   const totalMs=hist.reduce((a,b)=>a+(b.end-b.start),0);
   let h='<div class="rc '+cls+'"><div class="bar"></div><div class="rc-body">'+
     '<div class="rc-top"><div style="flex:1"><div class="rno">'+r.no+'</div>'+
-      '<div class="rtype">'+esc(TYPES[r.type].zh)+'</div></div>'+
+      '<div class="rtype">'+esc(TYPES[r.type].zh)+'</div>'+
+      (day.pair&&day.pair[r.no]?'<div style="margin-top:4px;font-size:12px;font-weight:800;color:#6d28d9">👭 两人一起：'+esc((cleaner(day.assign[r.no])||{name:'?'}).name)+' + '+esc((cleaner(day.pair[r.no])||{name:'?'}).name)+' · 每人 2 张床</div>':'')+'</div>'+
       '<div style="text-align:right"><span class="badge '+(st==='CO'?'b-co':'b-x')+'">'+(st==='CO'?'退房 CO':'续房 X')+'</span>'+
       '<div style="font-size:10.5px;color:#8b96ab;margin-top:4px">工作量 '+(st==='CO'?'1':'0.5')+'</div></div></div>';
   if(st==='CO'&&t.status==='pending'){
@@ -2524,7 +2714,7 @@ function adminPlan(k,day){
       const tk=d.tasks[r.no];
       h+='<div class="rchip '+st.toLowerCase()+(tk&&tk.status==='done'?' done':tk&&tk.status==='doing'?' doing':'')+'" data-act="cyclestatus" data-k="'+r.no+'">'+
         '<div class="n">'+r.no+'</div><div class="t">'+TYPES[r.type].s+'</div>'+
-        (as? '<div class="as" data-act="assignroom" data-k="'+r.no+'" style="color:'+as.color+';text-decoration:underline dotted">'+esc(as.name)+'</div>'
+        (as? '<div class="as" data-act="assignroom" data-k="'+r.no+'" style="color:'+as.color+';text-decoration:underline dotted">'+esc(as.name)+(d.pair&&d.pair[r.no]&&cleaner(d.pair[r.no])?'+'+esc(cleaner(d.pair[r.no]).name):'')+'</div>'
             : (['CO','X'].includes(st)?'<div class="as" data-act="assignroom" data-k="'+r.no+'" style="color:#9aa6bb">+</div>':''))+'</div>';
     });
     h+='</div></div>';
@@ -2533,20 +2723,23 @@ function adminPlan(k,day){
 
   // reparto
   const active=activeCleaners(d);
-  const W=ROOMS.filter(r=>['CO','X'].includes(d.status[r.no])).reduce((s,r)=>s+weight(d.status[r.no]),0);
-  const load={},cnt={};
-  active.forEach(c=>{load[c.id]=0;cnt[c.id]=0});
-  ROOMS.forEach(r=>{ if(d.assign[r.no]&&load[d.assign[r.no]]!==undefined){ load[d.assign[r.no]]+=weight(d.status[r.no]); cnt[d.assign[r.no]]++; }});
+  const W=ROOMS.filter(r=>['CO','X'].includes(d.status[r.no])).reduce((s,r)=>s+weight(d.status[r.no])*((d.pair&&d.pair[r.no])||r.type==='SUITE2'?2:1),0);
+  const load={},cnt={},mix={};
+  active.forEach(c=>{load[c.id]=0;cnt[c.id]=0;mix[c.id]={'D-CO':0,'D-X':0,'T-CO':0,'T-X':0,S:0}});
+  ROOMS.forEach(r=>{ if(!['CO','X'].includes(d.status[r.no])) return;
+    [d.assign[r.no], d.pair&&d.pair[r.no]].forEach(cid=>{ if(cid&&load[cid]!==undefined){ load[cid]+=weight(d.status[r.no]); cnt[cid]++;
+      const g=typeGroup(r.type); mix[cid][g==='S'?'S':g+'-'+d.status[r.no]]++; } }); });
   const F=active.reduce((s,c)=>s+(c.factor||1),0)||1;
   h+='<div class="card"><div class="card-h"><h3>3 · '+T('Reparto automático','自动分配')+'</h3><span class="sub">'+W.toFixed(1)+' puntos de trabajo</span></div>';
-  h+='<div class="tw" style="border:none"><table class="tt" style="min-width:0"><thead><tr><th>'+T('Empleada','员工')+'</th><th>Hab</th><th>Pts</th><th>'+T('Objetivo','目标')+'</th><th></th></tr></thead><tbody>';
+  h+='<div class="tw" style="border:none"><table class="tt" style="min-width:0"><thead><tr><th>'+T('Empleada','员工')+'</th><th>Hab</th><th>Pts</th><th>'+T('Objetivo','目标')+'</th><th></th><th title="Dobles / 2 camas / Suites">'+T('Dobles CO·X / 2 camas CO·X / Suite','双人 CO·X / 双床 CO·X / 套房')+'</th></tr></thead><tbody>';
   active.forEach(c=>{
     const tg=quotaMap(active,W)[c.id];
     h+='<tr><td><b style="color:'+c.color+'">'+esc(c.name)+'</b> <span style="color:#93a0b6;font-size:11px">×'+c.factor+'</span>'+
       (cnt[c.id]?' <span data-act="printone" data-k="'+c.id+'" title="Imprimir su hoja · 打印她的表" style="cursor:pointer;font-size:13px">🖨</span>':'')+'</td>'+
       '<td class="mono">'+cnt[c.id]+'</td><td class="mono"><b>'+load[c.id].toFixed(1)+'</b></td>'+
       '<td class="mono" style="color:#7b8aa5">'+tg+'</td>'+
-      '<td>'+(Math.abs(load[c.id]-tg)<=0.01?'<span class="badge b-ok">OK</span>':(Math.abs(load[c.id]-tg)<=1.01?'<span class="badge b-v">≈</span>':'<span class="badge b-x">'+((load[c.id]-tg)>0?'+':'')+(load[c.id]-tg).toFixed(1)+'</span>'))+'</td></tr>';
+      '<td>'+(Math.abs(load[c.id]-tg)<=0.01?'<span class="badge b-ok">OK</span>':(Math.abs(load[c.id]-tg)<=1.01?'<span class="badge b-v">≈</span>':'<span class="badge b-x">'+((load[c.id]-tg)>0?'+':'')+(load[c.id]-tg).toFixed(1)+'</span>'))+'</td>'+
+      '<td class="mono" style="font-size:12px;white-space:nowrap">'+mix[c.id]['D-CO']+'·'+mix[c.id]['D-X']+' / '+mix[c.id]['T-CO']+'·'+mix[c.id]['T-X']+(mix[c.id].S?' / '+mix[c.id].S:'')+'</td></tr>';
   });
   h+='</tbody></table></div>';
   h+='<div class="btnrow" style="margin-top:12px">'+
@@ -2724,6 +2917,10 @@ function openAssignModal(no){
       '<span style="font-size:12px;opacity:.75">'+cnt[c.id]+' '+(UI.lang==='zh'?'间':'hab.')+'</span></button>';
   });
   h+='</div>';
+  const pr=day.pair&&day.pair[no];
+  h+='<div class="lb" style="margin-top:14px">👭 '+T('Segunda persona (limpian juntas, 2 camas cada una)','第二个人（两人一起做，每人 2 张床）')+'</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px">'+active.filter(c=>c.id!==cur).map(c=>'<button class="btn btn-sm '+(pr===c.id?'btn-primary':'btn-ghost')+'" data-act="setpair" data-k="'+no+'|'+c.id+'">'+esc(c.name)+'</button>').join('')+
+    '<button class="btn btn-sm '+(!pr?'btn-primary':'btn-ghost')+'" data-act="setpair" data-k="'+no+'|">'+T('Nadie','不要')+'</button></div>';
   h+='<div class="btnrow" style="margin-top:12px"><button class="btn btn-ghost btn-sm" data-act="clrassign" data-k="'+no+'">'+T('Sin asignar','不分配')+'</button></div>';
   h+='<div style="font-size:11.5px;color:#7b8aa5;margin-top:10px">'+T('Esto solo cambia esta habitación. Si quieres todo repartido otra vez, usa Repartir automático.','只改这一间；要全部重排就点自动分配。')+'</div>';
   openModal(h);
@@ -3333,10 +3530,16 @@ function handle(act,k,el){
     case 'editcleaner': openEditCleaner(k); break;
     case 'addcleaner': openEditCleaner(null); break;
     case 'assignroom': openAssignModal(k); break;
+    case 'setpair': {
+      const parts=String(k).split('|'); const no=parts[0], cid=parts[1];
+      const d=ensureDay(UI.sessionAdminDate()); d.pair=d.pair||{};
+      if(cid&&cid!==d.assign[no]) d.pair[no]=cid; else delete d.pair[no];
+      d.cfgU=Date.now(); save(); openAssignModal(no); render(); break;
+    }
     case 'setassign': {
       const parts=String(k).split('|'); const no=parts[0], cid=parts[1];
       const d=ensureDay(UI.sessionAdminDate());
-      d.assign[no]=cid; d.cfgU=Date.now();
+      d.assign[no]=cid; d.cfgU=Date.now(); if(d.pair&&d.pair[no]===cid) delete d.pair[no];
       const t=d.tasks[no]||(d.tasks[no]={assignee:null,status:'pending',rounds:[],obs:'',photos:[],check:null,u:Date.now()});
       if(t.status!=='done'){ t.assignee=cid; t.u=Date.now(); } else { t.assignee=cid; }
       save(); closeModal(); render(); toast(no+' → '+(cleaner(cid)?cleaner(cid).name:''));
