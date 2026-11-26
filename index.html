@@ -974,7 +974,7 @@ function mergeRemote(rem){
     }
     if(!L.checks) L.checks={};
     if(R.checks) Object.keys(R.checks).forEach(no=>{ const a=L.checks[no], b=R.checks[no]; if(!a||((b.u||0)>(a.u||0))){ L.checks[no]=b; changed=true; } });
-    ['tasks','zones','extras'].forEach(sec=>{
+    ['tasks','zones','extras','issues'].forEach(sec=>{
       const rs=R[sec]||{};
       L[sec]=L[sec]||{};
       Object.keys(rs).forEach(key=>{
@@ -1500,6 +1500,36 @@ function cleanerRev(k,cid){
   Object.keys(ch).forEach(no=>{ const x=ch[no]; if(!x||(x.ok!==1&&x.ok!==0)) return; if(((day.assign||{})[no])===cid){ tot++; if(x.ok===1) ok++; } });
   return {tot:tot,ok:ok,bad:tot-ok};
 }
+/* ---------- Problemas apuntados por recepción · 前台登记房间问题 ---------- */
+const ISSUE_KINDS={mant:{zh:'维修',es:'Mantenimiento',ic:'🔧',col:'#1d4ed8',bg:'#eaf0ff'},queja:{zh:'投诉',es:'Queja',ic:'😠',col:'#b45309',bg:'#fff4e2'},otro:{zh:'其他问题',es:'Otro problema',ic:'⚠️',col:'#6d28d9',bg:'#f3edff'}};
+function dayIssues(day){ return Object.entries((day&&day.issues)||{}).map(([id,x])=>Object.assign({id},x)).filter(x=>!x.del).sort((a,b)=>a.room.localeCompare(b.room)||a.at-b.at); }
+function issuesCard(k,day){
+  const list=dayIssues(day);
+  let h='<div class="card"><div class="card-h"><h3>📝 '+T('Problemas de habitaciones','房间问题登记')+'</h3><span class="sub">'+list.length+' '+T('apuntados','条')+'</span></div>'+
+    '<div style="font-size:12.5px;color:#5d6b83;margin-bottom:8px">'+T('Apunta cualquier habitación (aunque no se limpie hoy). Sale todo junto en “Imprimir parte”.','任何房间都可以写（今天没打扫的也可以）。点"打印单"会一起打印出来。')+'</div>'+
+    '<datalist id="roomList">'+ROOMS.map(r=>'<option value="'+r.no+'">').join('')+'</datalist>'+
+    '<div style="display:grid;grid-template-columns:minmax(0,110px) minmax(0,1fr);gap:8px">'+
+      '<input class="inp" id="isRoom" list="roomList" inputmode="numeric" placeholder="'+T('Hab.','房号')+' 8101">'+
+      '<select class="inp" id="isKind">'+Object.keys(ISSUE_KINDS).map(kk=>'<option value="'+kk+'">'+ISSUE_KINDS[kk].ic+' '+ISSUE_KINDS[kk].zh+' · '+ISSUE_KINDS[kk].es+'</option>').join('')+'</select>'+
+    '</div>'+
+    '<textarea class="inp" id="isNote" rows="2" style="margin-top:8px" placeholder="'+T('Qué pasa: ej. la ducha pierde agua / el cliente se queja del ruido','写清楚问题：例如 淋浴漏水 / 客人投诉吵')+'"></textarea>'+
+    '<div class="btnrow" style="margin-top:8px"><button class="btn btn-primary" data-act="issueadd">＋ '+T('Guardar','保存')+'</button></div>';
+  if(list.length){
+    h+='<div style="margin-top:12px">';
+    list.forEach(x=>{ const K=ISSUE_KINDS[x.kind]||ISSUE_KINDS.otro;
+      h+='<div class="list-row" style="align-items:flex-start"><div class="rn" style="font-weight:800;width:52px;flex:0 0 auto">'+esc(x.room)+'</div>'+
+        '<div class="g"><span class="badge" style="background:'+K.bg+';color:'+K.col+'">'+K.ic+' '+K.zh+'</span>'+
+        (x.fixed?' <span class="badge b-done">✓ '+T('Resuelto','已解决')+'</span>':'')+
+        '<div style="font-size:13.5px;margin-top:3px;'+(x.fixed?'color:#8b96ab;text-decoration:line-through':'')+'">'+esc(x.note||'—')+'</div>'+
+        '<div style="font-size:11px;color:#93a0b6">'+hhmm(x.at)+'</div></div>'+
+        '<button class="btn btn-sm btn-ghost" data-act="issuefix" data-k="'+x.id+'" title="'+T('Resuelto','已解决')+'">'+(x.fixed?'↺':'✓')+'</button>'+
+        '<button class="btn btn-sm btn-ghost" data-act="issuedel" data-k="'+x.id+'" title="'+T('Borrar','删除')+'" style="color:#b91c1c">🗑</button></div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  return h;
+}
 function adminRev(k,day){
   if(!day) return '<div class="empty"><div class="ic">🗓</div>Todavía no hay reparto para este día. · 今天还没有排房。</div>';
   const rooms=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no]));
@@ -1518,6 +1548,7 @@ function adminRev(k,day){
     '<div class="kpi"><div class="v" style="color:#15803d">'+st.ok+'</div><div class="l">'+T('Pasan','通过')+'</div></div>'+
     '<div class="kpi"><div class="v" style="color:#b91c1c">'+(st.bad-st.q)+'</div><div class="l">'+T('No pasan','不通过')+'</div></div>'+
     '<div class="kpi"><div class="v" style="color:#b45309">'+st.q+'</div><div class="l">'+T('Quejas','投诉')+'</div></div></div>';
+  h+=issuesCard(k,day);
   h+='<div class="card tight">';
   if(!cleaning.length) h+='<div style="font-size:13px;color:#7b8aa5;padding:6px 0">'+T('Aún no hay habitaciones terminadas hoy. Cuando una empleada pulse TERMINADA, aparece aquí.','今天还没有打扫完的房间。员工点“完成”后会出现在这里。')+'</div>';
   const rank=r=>{ const c=checks[r.no]; if(!c) return 1; return c.ok===0?0:2; };
@@ -1726,12 +1757,13 @@ function printParte(k){
       av.push([r.no,cb.name,obs.replace(/\n/g,' '),(t.fix?'Arreglado':'Pendiente')]);
     }
   });
+  const iss=dayIssues(day).map(x=>{ const K=ISSUE_KINDS[x.kind]||ISSUE_KINDS.otro; return [x.room, K.zh+' · '+K.es, x.note||'', hhmm(x.at), x.fixed?'Resuelto':'Pendiente']; });
   const th='style="background:#0e1c3d;color:#fff;font-size:9pt;padding:4px 5px;text-align:left;border:1px solid #0e1c3d"';
   const td='style="font-size:9pt;padding:4px 5px;border:1px solid #c8d0dd;vertical-align:top"';
   function tbl(cols,rows,widths){
     if(!rows.length) return '<div style="font-size:9.5pt;color:#555;padding:6px 0">Sin incidencias · 无</div>';
-    let o='<table style="width:100%;border-collapse:collapse;margin-bottom:4mm"><thead><tr>';
-    cols.forEach((c,i)=>{ o+='<th '+th+' style="width:'+widths[i]+';background:#0e1c3d;color:#fff;font-size:9pt;padding:4px 5px;text-align:left;border:1px solid #0e1c3d">'+c+'</th>'; });
+    let o='<table style="width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:4mm"><thead><tr>';
+    cols.forEach((c,i)=>{ o+='<th style="'+(widths[i]?'width:'+widths[i]+';':'')+'background:#0e1c3d;color:#fff;font-size:9pt;padding:4px 5px;text-align:left;border:1px solid #0e1c3d">'+c+'</th>'; });
     o+='</tr></thead><tbody>';
     rows.forEach(r=>{ o+='<tr>'+r.map(v=>'<td '+td+'>'+esc(v)+'</td>').join('')+'</tr>'; });
     o+='</tbody></table>';
@@ -1747,6 +1779,8 @@ function printParte(k){
     tbl(['Hab.','Planta','Limpiada por','Fin','Resultado','Motivo','Revisado'], bad, ['14mm','14mm','26mm','14mm','22mm','','18mm'])+
     '<div style="font-size:11pt;font-weight:700;margin:6mm 0 2mm">2 · Averías para mantenimiento · 需要维修 ('+av.length+')</div>'+
     tbl(['Hab.','Quién limpió','Problema','Estado'], av, ['14mm','30mm','','20mm'])+
+    '<div style="font-size:11pt;font-weight:700;margin:6mm 0 2mm">3 · Apuntado por recepción · 前台登记的房间问题 ('+iss.length+')</div>'+
+    tbl(['Hab.','Tipo','Problema','Hora','Estado'], iss, ['14mm','44mm','','14mm','20mm'])+
     '<div style="display:flex;gap:20mm;margin-top:12mm;font-size:9pt">'+
       '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Firma recepción · 前台</div>'+
       '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Firma mantenimiento · 维修</div>'+
@@ -3332,6 +3366,16 @@ function handle(act,k,el){
     case 'chkundo': { const d=ensureDay(UI.sessionAdminDate()); if(d.checks) delete d.checks[k]; save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
     case 'printrep': printReparto(UI.date); break;
+    case 'issueadd': {
+      const room=($('#isRoom').value||'').trim(), kind=$('#isKind').value, note=($('#isNote').value||'').trim();
+      if(!ROOMS.find(r=>r.no===room)) return toast(T('Número de habitación no válido','房号不对'));
+      if(!note) return toast(T('Escribe qué pasa','请写清楚问题'));
+      const d=ensureDay(UI.sessionAdminDate()); d.issues=d.issues||{};
+      d.issues[uid('i')]={room,kind,note:note.slice(0,300),at:Date.now(),by:'admin',fixed:false,u:Date.now()};
+      save(); render(); toast(T('Guardado','已保存')); break;
+    }
+    case 'issuefix': { const d=S.days[UI.sessionAdminDate()]; const x=d&&d.issues&&d.issues[k]; if(x){ x.fixed=!x.fixed; x.u=Date.now(); save(); render(); } break; }
+    case 'issuedel': { const d=S.days[UI.sessionAdminDate()]; const x=d&&d.issues&&d.issues[k]; if(x){ x.del=true; x.u=Date.now(); save(); render(); toast(T('Borrado','已删除')); } break; }
     case 'delmsg': { const cid=el.dataset.cid; deleteMsgs([k]); openChat(cid); toast(T('Mensaje borrado','已删除')); break; }
     case 'clearchat': {
       openModal('<div class="sheet-h"><h3>🗑 '+T('Borrar conversación','清空聊天记录')+'</h3><button class="x" data-act="close">✕</button></div>'+
