@@ -1345,6 +1345,7 @@ function openChat(t){
     if(dk!==lastDay){ lastDay=dk; h+='<div style="text-align:center;font-size:10.5px;color:#93a0b6;margin:6px 0">'+esc(fechaLarga(dk))+'</div>'; }
     h+='<div class="bub '+(mine?'me':'them')+'">'+(g&&!mine?'<div style="font-size:10.5px;font-weight:800;opacity:.7;margin-bottom:2px">'+esc(personName(m.from))+'</div>':'')+
       esc(m.text)+'<span class="t">'+hhmm(m.at)+(mine?' ✓':'')+
+      (isAdmin&&!mine?' <b data-act="msgissue" data-k="'+m.id+'" title="'+T('Apuntar en revisión','加到查房记录')+'" style="cursor:pointer;margin-left:6px;opacity:.8">📝</b>':'')+
       (isAdmin?' <b data-act="delmsg" data-k="'+m.id+'" data-cid="'+esc(t)+'" title="Borrar · 删除" style="cursor:pointer;margin-left:6px;opacity:.7">🗑</b>':'')+'</span></div>'; });
   h+='</div>';
   if(isAdmin&&list.length) h+='<div style="text-align:right;margin:4px 0 2px"><button class="btn btn-sm btn-ghost" data-act="clearchat" data-k="'+esc(t)+'" style="color:#b91c1c">🗑 '+T('Borrar toda la conversación','清空聊天记录')+'</button></div>';
@@ -1542,6 +1543,16 @@ function issuesCard(k,day){
   h+='</div>';
   return h;
 }
+function openAddIssue(room,note,kind){
+  let h='<div class="sheet-h"><h3>📝 '+T('Apuntar en revisión','加到查房记录')+'</h3><button class="x" data-act="close">✕</button></div>'+
+    '<datalist id="roomList2">'+ROOMS.map(r=>'<option value="'+r.no+'">').join('')+'</datalist>'+
+    '<label class="lb">'+T('Habitación','房号')+'</label><input class="inp" id="aiRoom" list="roomList2" inputmode="numeric" value="'+esc(room||'')+'">'+
+    '<label class="lb">'+T('Tipo','类型')+'</label><select class="inp" id="aiKind">'+Object.keys(ISSUE_KINDS).map(kk=>'<option value="'+kk+'" '+(kk===(kind||'mant')?'selected':'')+'>'+ISSUE_KINDS[kk].ic+' '+ISSUE_KINDS[kk].zh+' · '+ISSUE_KINDS[kk].es+'</option>').join('')+'</select>'+
+    '<label class="lb">'+T('Problema','问题')+'</label><textarea class="inp" id="aiNote" rows="3">'+esc(note||'')+'</textarea>'+
+    '<div class="btnrow" style="margin-top:12px"><button class="btn btn-primary" data-act="aisave">'+T('Guardar en revisión','保存到查房记录')+'</button></div>';
+  openModal(h);
+}
+function roomInText(t){ const m=String(t||'').match(/\b8[1-3]\d{2}\b/); return m&&ROOMS.find(r=>r.no===m[0])?m[0]:''; }
 function adminRev(k,day){
   if(!day) return '<div class="empty"><div class="ic">🗓</div>Todavía no hay reparto para este día. · 今天还没有排房。</div>';
   const rooms=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no]));
@@ -3042,7 +3053,7 @@ function collectIssues(all){
       const obs=(t.obs||'').trim(); if(!obs&&!(t.photos||[]).length) return;
       const rd=(t.rounds||[]).filter(x=>x.start&&x.end&&!x.void);
       const c=cleaner(d.assign[r.no]);
-      out.push({k,no:r.no,floor:r.floor,type:TYPES[r.type].es,st:d.status[r.no],who:c?c.name:'',endo:rd.length?hhmm(rd[rd.length-1].end):'',obs,photos:(t.photos||[]).length,pics:(t.photos||[]).slice(),fix:t.fix||null});
+      out.push({k,no:r.no,floor:r.floor,type:TYPES[r.type].es,st:d.status[r.no],who:c?c.name:'',endo:rd.length?hhmm(rd[rd.length-1].end):'',obs,photos:(t.photos||[]).length,pics:(t.photos||[]).slice(),fix:t.fix||null,cid:d.assign[r.no]||t.assignee||null});
     });
   });
   return out;
@@ -3079,6 +3090,8 @@ function openIssues(){
       ((x.pics&&x.pics.length)?'<div class="thumbs">'+x.pics.map(p=>'<img src="'+p+'" alt="foto" style="width:72px;height:72px">').join('')+'</div>':'')+
       '<div class="btnrow" style="margin-top:8px"><button class="btn btn-sm '+(x.fix?'btn-ok':'btn-ghost')+'" data-act="fix" data-k="'+x.no+'">'+(x.fix?'✓ Arreglado':'Marcar arreglado')+'</button>'+
       '<button class="btn btn-sm btn-ghost" data-act="viewroom" data-k="'+x.no+'">Ver habitación</button>'+
+      (x.cid?'<button class="btn btn-sm btn-ghost" data-act="replyroom" data-k="'+x.no+'" data-cid="'+x.cid+'">💬 '+T('Responder','回复')+'</button>':'')+
+      '<button class="btn btn-sm btn-ghost" data-act="toissue" data-k="'+x.no+'">📝 '+T('A revisión','加到查房记录')+'</button>'+
       ((x.photos)? '<span class="pill" style="background:#eaf0ff;color:#1d4ed8">📷 '+x.photos+'</span>':'')+'</div></div>';
   });
   h+='<div class="note" style="margin-top:10px">El Excel sale con una fila por habitación y problema, listo para imprimir y dárselo a mantenimiento. · 导出的 Excel 可以直接打印给维修。</div>';
@@ -3399,6 +3412,17 @@ function handle(act,k,el){
       save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
     case 'printrep': printReparto(UI.date); break;
+    case 'replyroom': { const cid=el.dataset.cid; openChat(cid); setTimeout(()=>{ const b=document.getElementById('msgTA'); if(b){ b.value='关于 '+k+' 房：'; b.focus(); } },60); break; }
+    case 'toissue': { const d=S.days[UI.sessionAdminDate()]; const t=d&&d.tasks&&d.tasks[k]; openAddIssue(k,t?(t.obs||''):'','mant'); break; }
+    case 'msgissue': { const m=(S.msgs||[]).find(x=>x.id===k); if(!m) break; openAddIssue(roomInText(m.text),m.text+' ('+personName(m.from).split(' ')[0]+')','otro'); break; }
+    case 'aisave': {
+      const room=($('#aiRoom').value||'').trim(), kind=$('#aiKind').value, note=($('#aiNote').value||'').trim();
+      if(!ROOMS.find(r=>r.no===room)) return toast(T('Número de habitación no válido','房号不对'));
+      if(!note) return toast(T('Escribe qué pasa','请写清楚问题'));
+      const d=ensureDay(UI.sessionAdminDate()); d.issues=d.issues||{};
+      d.issues[uid('i')]={room,kind,note:note.slice(0,300),at:Date.now(),by:'admin',fixed:false,u:Date.now()};
+      save(); closeModal(); render(); toast(T('Apuntado en revisión ✓','已加到查房记录 ✓')); break;
+    }
     case 'issueadd': {
       const room=($('#isRoom').value||'').trim(), kind=$('#isKind').value, note=($('#isNote').value||'').trim();
       if(!ROOMS.find(r=>r.no===room)) return toast(T('Número de habitación no válido','房号不对'));
