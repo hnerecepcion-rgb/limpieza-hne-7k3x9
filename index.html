@@ -1818,6 +1818,18 @@ function cleanerRev(k,cid){
 /* ---------- Problemas apuntados por recepción · 前台登记房间问题 ---------- */
 const ISSUE_KINDS={mant:{zh:'维修',es:'Mantenimiento',ic:'🔧',col:'#1d4ed8',bg:'#eaf0ff'},queja:{zh:'投诉',es:'Queja',ic:'😠',col:'#b45309',bg:'#fff4e2'},otro:{zh:'其他问题',es:'Otro problema',ic:'⚠️',col:'#6d28d9',bg:'#f3edff'}};
 function dayIssues(day){ return Object.entries((day&&day.issues)||{}).map(([id,x])=>Object.assign({id},x)).filter(x=>!x.del).sort((a,b)=>a.room.localeCompare(b.room)||a.at-b.at); }
+/* problemas sin arreglar de días anteriores: salen cada día hasta que se marcan como arreglados */
+function pendingBefore(k){
+  const out=[];
+  Object.keys(S.days).filter(d=>d<k).sort().slice(-90).forEach(dk=>{
+    const d=S.days[dk]; if(!d) return;
+    dayIssues(d).filter(x=>!x.fixed).forEach(x=>out.push({src:'issue',day:dk,id:x.id,room:x.room,kind:x.kind,note:x.note,at:x.at}));
+    ROOMS.forEach(r=>{ const t=d.tasks&&d.tasks[r.no]; if(!t) return; const obs=(t.obs||'').trim();
+      if((obs||(t.photos||[]).length)&&!t.fix){ const c=cleaner(d.assign[r.no]); out.push({src:'averia',day:dk,id:r.no,room:r.no,kind:'mant',note:(obs||'📷')+(c?' ('+c.name+')':''),at:null}); } });
+  });
+  return out.sort((a,b)=>a.room.localeCompare(b.room)||a.day.localeCompare(b.day));
+}
+function shortDay(dk){ const p=dk.split('-'); return p[2]+'/'+p[1]; }
 function issuesCard(k,day){
   const list=dayIssues(day);
   let h='<div class="card"><div class="card-h"><h3>📝 '+T('Problemas de habitaciones','房间问题登记')+'</h3><span class="sub">'+list.length+' '+T('apuntados','条')+'</span></div>'+
@@ -1839,6 +1851,19 @@ function issuesCard(k,day){
         '<div style="font-size:11px;color:#93a0b6">'+hhmm(x.at)+'</div></div>'+
         '<button class="btn btn-sm btn-ghost" data-act="issuefix" data-k="'+x.id+'" title="'+T('Resuelto','已解决')+'">'+(x.fixed?'↺':'✓')+'</button>'+
         '<button class="btn btn-sm btn-ghost" data-act="issuedel" data-k="'+x.id+'" title="'+T('Borrar','删除')+'" style="color:#b91c1c">🗑</button></div>';
+    });
+    h+='</div>';
+  }
+  const old=pendingBefore(k);
+  if(old.length){
+    h+='<div style="margin-top:14px;padding-top:10px;border-top:1px dashed #d5dbe6">'+
+      '<div style="font-weight:800;font-size:13.5px;color:#b45309">⏳ '+T('Pendientes de días anteriores','之前没修好的')+' ('+old.length+')</div>'+
+      '<div style="font-size:11.5px;color:#7b8aa5;margin:2px 0 6px">'+T('Salen cada día hasta que pulses ✓ arreglado.','每天都会显示，直到点 ✓ 已修好。')+'</div>';
+    old.forEach(x=>{ const K=ISSUE_KINDS[x.kind]||ISSUE_KINDS.otro;
+      h+='<div class="list-row" style="align-items:flex-start"><div class="rn" style="font-weight:800;width:52px;flex:0 0 auto">'+esc(x.room)+'</div>'+
+        '<div class="g"><span class="badge" style="background:'+K.bg+';color:'+K.col+'">'+K.ic+' '+K.zh+'</span> <span class="badge">'+shortDay(x.day)+'</span>'+
+        '<div style="font-size:13.5px;margin-top:3px">'+esc(x.note||'—')+'</div></div>'+
+        '<button class="btn btn-sm btn-ok" data-act="oldfix" data-k="'+esc(x.id)+'" data-day="'+x.day+'" data-src="'+x.src+'">✓ '+T('Arreglado','已修好')+'</button></div>';
     });
     h+='</div>';
   }
@@ -2100,6 +2125,7 @@ function printParte(k){
     }
   });
   const iss=dayIssues(day).map(x=>{ const K=ISSUE_KINDS[x.kind]||ISSUE_KINDS.otro; return [x.room, K.zh+' · '+K.es, x.note||'', hhmm(x.at), x.fixed?'Resuelto':'Pendiente']; });
+  const oldP=pendingBefore(k).map(x=>{ const K=ISSUE_KINDS[x.kind]||ISSUE_KINDS.otro; return [x.room, K.zh+' · '+K.es, x.note||'', shortDay(x.day), 'Pendiente']; });
   const th='style="background:#0e1c3d;color:#fff;font-size:9pt;padding:4px 5px;text-align:left;border:1px solid #0e1c3d"';
   const td='style="font-size:9pt;padding:4px 5px;border:1px solid #c8d0dd;vertical-align:top"';
   function tbl(cols,rows,widths){
@@ -2123,6 +2149,8 @@ function printParte(k){
     tbl(['Hab.','Quién limpió','Problema','Estado'], av, ['14mm','30mm','','20mm'])+
     '<div style="font-size:11pt;font-weight:700;margin:6mm 0 2mm">3 · Apuntado por recepción · 前台登记的房间问题 ('+iss.length+')</div>'+
     tbl(['Hab.','Tipo','Problema','Hora','Estado'], iss, ['14mm','44mm','','14mm','20mm'])+
+    '<div style="font-size:11pt;font-weight:700;margin:6mm 0 2mm">4 · Pendientes de días anteriores · 之前没修好的 ('+oldP.length+')</div>'+
+    tbl(['Hab.','Tipo','Problema','Día','Estado'], oldP, ['14mm','44mm','','14mm','20mm'])+
     '<div style="display:flex;gap:20mm;margin-top:12mm;font-size:9pt">'+
       '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Firma recepción · 前台</div>'+
       '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Firma mantenimiento · 维修</div>'+
@@ -3742,6 +3770,12 @@ function handle(act,k,el){
       const d=ensureDay(UI.sessionAdminDate()); d.issues=d.issues||{};
       d.issues[uid('i')]={room,kind,note:note.slice(0,300),at:Date.now(),by:'admin',fixed:false,u:Date.now()};
       save(); render(); toast(T('Guardado','已保存')); break;
+    }
+    case 'oldfix': {
+      const d=S.days[el.dataset.day]; if(!d) break;
+      if(el.dataset.src==='issue'){ const x=d.issues&&d.issues[k]; if(x){ x.fixed=true; x.fixedAt=Date.now(); x.u=Date.now(); } }
+      else { const t=d.tasks&&d.tasks[k]; if(t){ t.fix={at:Date.now(),by:'admin'}; t.u=Date.now(); } }
+      save(); render(); toast(T('Arreglado ✓','已修好 ✓')); break;
     }
     case 'issuefix': { const d=S.days[UI.sessionAdminDate()]; const x=d&&d.issues&&d.issues[k]; if(x){ x.fixed=!x.fixed; x.u=Date.now(); save(); render(); } break; }
     case 'issuedel': { const d=S.days[UI.sessionAdminDate()]; const x=d&&d.issues&&d.issues[k]; if(x){ x.del=true; x.u=Date.now(); save(); render(); toast(T('Borrado','已删除')); } break; }
