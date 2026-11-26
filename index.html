@@ -739,6 +739,51 @@ function autoAssign(k){
     assign[pick.r.no]=c.id; load[c.id]+=w; load[pick.dn]-=w; count[c.id]++; count[pick.dn]--;
   });
 
+  /* 5) regla fija: cada persona como máximo 2 plantas · 每人最多 2 个楼层 */
+  const floorsOf=cid=>{ const f=new Set(); rooms.forEach(r=>{ if(assign[r.no]===cid) f.add(r.floor); }); return f; };
+  for(let guard=0; guard<120; guard++){
+    const c=active.find(x=>floorsOf(x.id).size>2); if(!c) break;
+    const fs=[...floorsOf(c.id)];
+    const n=f=>rooms.filter(r=>r.floor===f&&assign[r.no]===c.id).length;
+    fs.sort((a,b)=> (n(b)-n(a)) || (floorRank(c,a)-floorRank(c,b)) );
+    const keep=fs.slice(0,2);
+    const r=rooms.find(x=>assign[x.no]===c.id&&!keep.includes(x.floor)); if(!r) break;
+    const w=weight(day.status[r.no]);
+    const dest=active.filter(d=>d.id!==c.id&&(floorsOf(d.id).has(r.floor)||floorsOf(d.id).size<2))
+      .sort((a,b)=> ((load[a.id]-target[a.id])-(load[b.id]-target[b.id])) || (floorRank(a,r.floor)-floorRank(b,r.floor)) )[0];
+    if(!dest) break;
+    assign[r.no]=dest.id; load[c.id]-=w; load[dest.id]+=w; count[c.id]--; count[dest.id]++;
+    /* compensar: la que recibe devuelve una de una planta que c ya tiene (mismo peso si se puede) */
+    const back=rooms.filter(q=>assign[q.no]===dest.id&&keep.includes(q.floor)&&q.no!==r.no)
+      .sort((a,b)=> (Math.abs(weight(day.status[a.no])-w)-Math.abs(weight(day.status[b.no])-w)) || (floorRank(c,a.floor)-floorRank(c,b.floor)) )[0];
+    if(back){
+      const wb=weight(day.status[back.no]);
+      const before=Math.abs(load[c.id]-target[c.id])+Math.abs(load[dest.id]-target[dest.id]);
+      const after=Math.abs(load[c.id]+wb-target[c.id])+Math.abs(load[dest.id]-wb-target[dest.id]);
+      if(after<=before+1e-9){ assign[back.no]=c.id; load[c.id]+=wb; load[dest.id]-=wb; count[c.id]++; count[dest.id]--; }
+    }
+  }
+
+  /* 6) volver a cuadrar sin romper la regla de 2 plantas */
+  for(let it=0; it<200; it++){
+    const arr=active.slice().sort((a,b)=>(load[b.id]-target[b.id])-(load[a.id]-target[a.id]));
+    let moved=false;
+    for(const hi of arr){
+      if(load[hi.id]-target[hi.id]<=0.25) break;
+      for(const lo of arr.slice().reverse()){
+        if(lo.id===hi.id||load[lo.id]-target[lo.id]>=-0.25) continue;
+        const fLo=floorsOf(lo.id);
+        const r=rooms.filter(x=>assign[x.no]===hi.id&&(fLo.has(x.floor)||fLo.size<2))
+          .sort((a,b)=>floorRank(lo,a.floor)-floorRank(lo,b.floor))
+          .find(x=>{ const w=weight(day.status[x.no]);
+            return Math.abs(load[hi.id]-w-target[hi.id])+Math.abs(load[lo.id]+w-target[lo.id]) < Math.abs(load[hi.id]-target[hi.id])+Math.abs(load[lo.id]-target[lo.id])-1e-9; });
+        if(r){ const w=weight(day.status[r.no]); assign[r.no]=lo.id; load[hi.id]-=w; load[lo.id]+=w; count[hi.id]--; count[lo.id]++; moved=true; break; }
+      }
+      if(moved) break;
+    }
+    if(!moved) break;
+  }
+
   // guardar
   day.assign=assign;
   day.tasks={};
@@ -968,7 +1013,16 @@ function mergeRemote(rem){
     });
     if(S.notices.length>150) S.notices=S.notices.slice(-150);
   }
-  const rmsg=rem.msgs||[];
+  /* grupos de chat */
+  if(rem.groups&&rem.groups.length){
+    S.groups=S.groups||[];
+    rem.groups.forEach(g=>{ const i=S.groups.findIndex(x=>x.id===g.id);
+      if(i<0){ S.groups.push(g); changed=true; } else if((g.u||0)>(S.groups[i].u||0)){ S.groups[i]=g; changed=true; } });
+  }
+  /* mensajes borrados (se borran en todos los móviles) */
+  if(rem.msgDel){ S.msgDel=S.msgDel||{}; Object.keys(rem.msgDel).forEach(id=>{ if(!S.msgDel[id]){ S.msgDel[id]=rem.msgDel[id]; changed=true; } }); }
+  if(S.msgDel&&S.msgs){ const n0=S.msgs.length; S.msgs=S.msgs.filter(m=>!S.msgDel[m.id]); if(S.msgs.length!==n0) changed=true; }
+  const rmsg=(rem.msgs||[]).filter(m=>!(S.msgDel&&S.msgDel[m.id]));
   if(rmsg.length){
     S.msgs=S.msgs||[];
     const mx={}; S.msgs.forEach(m=>mx[m.id]=m);
@@ -1085,18 +1139,95 @@ function openNotices(who){
 
 /* ================= MENSAJES · 消息 ================= */
 function nowRole(){ return S.session?(S.session.role==='admin'?'admin':S.session.uid):null; }
-function threadOf(cid){ return (S.msgs||[]).filter(m=>(m.from==='admin'&&m.to===cid)||(m.from===cid&&m.to==='admin')).sort((a,b)=>a.at-b.at); }
-function unreadMsgFor(who){ return (S.msgs||[]).filter(m=>m.to===who&&!(m.rd||[]).includes(who)).length; }
-function unreadFrom(cid){ return (S.msgs||[]).filter(m=>m.from===cid&&m.to==='admin'&&!(m.rd||[]).includes('admin')).length; }
-function unreadMsgAdmin(){ return S.cfg.cleaners.filter(c=>c.active).reduce((n,c)=>n+unreadFrom(c.id),0); }
+/* conversaciones: 'admin', id de empleada, o 'g:<id>' para un grupo */
+function isGroup(t){ return String(t||'').slice(0,2)==='g:'; }
+function groupOf(t){ return (S.groups||[]).find(g=>'g:'+g.id===t&&!g.del); }
+function personName(id){ if(id==='admin') return '前台 Recepción'; const c=cleaner(id); return c?(c.name+(c.alias?' '+c.alias:'')):String(id); }
+function convName(t){ if(isGroup(t)){ const g=groupOf(t); return g?g.name:'Grupo'; } return personName(t); }
+function thread(me,t){
+  return (S.msgs||[]).filter(m=> isGroup(t)? m.to===t : ((m.from===me&&m.to===t)||(m.from===t&&m.to===me)) ).sort((a,b)=>a.at-b.at);
+}
+function threadOf(cid){ return thread('admin',cid); }
+function msgForMe(m,me){
+  if(m.from===me) return false;
+  if(m.to===me) return true;
+  if(isGroup(m.to)){ const g=groupOf(m.to); return !!(g&&g.members.includes(me)); }
+  return false;
+}
+function unreadMsgFor(who){ return (S.msgs||[]).filter(m=>msgForMe(m,who)&&!(m.rd||[]).includes(who)).length; }
+function unreadIn(me,t){ return thread(me,t).filter(m=>m.from!==me&&!(m.rd||[]).includes(me)).length; }
+function unreadFrom(cid){ return unreadIn('admin',cid); }
+function unreadMsgAdmin(){ return unreadMsgFor('admin'); }
+function markRead(me,t){
+  let ch=false;
+  thread(me,t).forEach(m=>{ if(m.from!==me){ m.rd=m.rd||[]; if(!m.rd.includes(me)){ m.rd.push(me); ch=true; } } });
+  if(ch){ save(); if(S.session) render(); }
+}
+/* lista de conversaciones de una persona, la más reciente primero */
+function convList(me){
+  const out=[];
+  if(me!=='admin') out.push('admin');
+  S.cfg.cleaners.filter(c=>c.active&&c.id!==me).forEach(c=>out.push(c.id));
+  (S.groups||[]).filter(g=>!g.del&&g.members.includes(me)).forEach(g=>out.push('g:'+g.id));
+  const last=t=>{ const th=thread(me,t); return th.length?th[th.length-1].at:0; };
+  return out.sort((a,b)=>last(b)-last(a));
+}
+function convRow(me,t){
+  const th=thread(me,t), last=th[th.length-1], un=unreadIn(me,t);
+  let av;
+  if(isGroup(t)) av='<span class="av3" style="background:#0e1c3d">👥</span>';
+  else if(t==='admin') av='<span class="av3" style="background:#0e1c3d">前</span>';
+  else { const c=cleaner(t)||{}; av='<span class="av3" style="background:'+(c.color||'#64748b')+'">'+esc((c.name||'?').slice(0,1))+'</span>'; }
+  const sub=isGroup(t)?(groupOf(t)||{members:[]}).members.map(x=>x==='admin'?'前台':(cleaner(x)||{name:'?'}).name).join('、'):'';
+  const pv=last?((last.from===me?'我: ':(isGroup(t)?personName(last.from).split(' ')[0]+': ':''))+last.text):'';
+  return '<div class="rowc" data-act="chat" data-k="'+esc(t)+'">'+av+
+    '<div style="flex:1;min-width:0"><div class="nm">'+esc(convName(t))+(sub?' <span style="font-size:11px;color:#93a0b6">'+esc(sub)+'</span>':'')+'</div>'+
+    '<div class="pv">'+(pv?esc(pv):'<span style="color:#b3bccb">Sin mensajes · 还没有消息</span>')+'</div></div>'+
+    (un?'<span class="un">'+un+'</span>':'')+'<span class="tm">'+(last?hhmm(last.at):'')+'</span></div>';
+}
+function openChatList(){
+  const me=nowRole();
+  let h='<div class="sheet-h"><h3>💬 消息 · Mensajes</h3><button class="x" data-act="close">✕</button></div>'+
+    '<button class="btn btn-primary btn-block" data-act="newchat" style="margin-bottom:10px">＋ 新消息 / 建群（可以选几个人）</button>'+
+    '<div class="chatlist">'+convList(me).map(t=>convRow(me,t)).join('')+'</div>';
+  openModal(h);
+}
+/* elegir 1 persona (chat directo) o varias (grupo) */
+function openNewChat(){
+  const me=nowRole();
+  const people=['admin'].concat(S.cfg.cleaners.filter(c=>c.active).map(c=>c.id)).filter(x=>x!==me);
+  let h='<div class="sheet-h"><h3>＋ 新消息 · Nuevo</h3><button class="x" data-act="close">✕</button></div>'+
+    '<div style="font-size:13px;color:#5d6b83;margin-bottom:8px">选 1 个人就是单独聊天；选 2 个或更多人会建一个群。· Elige 1 persona o varias para un grupo.</div>'+
+    people.map(id=>'<label class="list-row" style="cursor:pointer"><input type="checkbox" data-pick="'+id+'" style="width:20px;height:20px;margin-right:10px">'+
+      '<div class="g"><div class="t" style="font-size:14px">'+esc(personName(id))+'</div></div></label>').join('')+
+    '<label class="lb">群名称（可不填）· Nombre del grupo (opcional)</label><input class="inp" id="gName" placeholder="例如：2楼 · Planta 2">'+
+    '<div class="btnrow" style="margin-top:12px"><button class="btn btn-primary" data-act="newchatgo">开始 · Empezar</button></div>';
+  openModal(h);
+}
+function openEditGroup(gid){
+  const g=(S.groups||[]).find(x=>x.id===gid&&!x.del); if(!g) return;
+  const people=['admin'].concat(S.cfg.cleaners.filter(c=>c.active).map(c=>c.id));
+  let h='<div class="sheet-h"><h3>👥 '+T('Editar grupo','编辑群')+'</h3><button class="x" data-act="close">✕</button></div>'+
+    '<label class="lb">群名称 · Nombre</label><input class="inp" id="gName" value="'+esc(g.name)+'">'+
+    '<label class="lb">成员 · Miembros</label>'+
+    people.map(id=>'<label class="list-row" style="cursor:pointer"><input type="checkbox" data-pick="'+id+'" '+(g.members.includes(id)?'checked':'')+' style="width:20px;height:20px;margin-right:10px">'+
+      '<div class="g"><div class="t" style="font-size:14px">'+esc(personName(id))+'</div></div></label>').join('')+
+    '<div class="btnrow" style="margin-top:12px"><button class="btn btn-primary" data-act="savegroup" data-k="'+gid+'">'+T('Guardar','保存')+'</button>'+
+    '<button class="btn btn-danger" data-act="delgroup" data-k="'+gid+'">'+T('Eliminar grupo','解散群')+'</button></div>';
+  openModal(h);
+}
 function pushMsg(from,to,text){
   text=String(text||'').trim(); if(!text) return false;
   S.msgs=S.msgs||[];
   S.msgs.push({id:uid('m'),from:from,to:to,text:text.slice(0,400),at:Date.now(),rd:[from]});
   if(S.msgs.length>400) S.msgs=S.msgs.slice(-400);
   save();
-  if(from==='admin'&&to!=='admin') notifyCleaner(to,'💬 前台 Recepción',text.slice(0,400));
-  if(to==='admin'&&from!=='admin'){ const c=cleaner(from); notifyAdmin('💬 '+(c?c.name+(c.alias?' '+c.alias:''):from),text.slice(0,400)); }
+  try{
+    const g=isGroup(to)?groupOf(to):null;
+    const title='💬 '+personName(from)+(g?' · '+g.name:'');
+    const targets=g?g.members.filter(x=>x!==from):[to];
+    targets.forEach(t=>notifyPush(t,title,text.slice(0,400)));
+  }catch(e){}
   return true;
 }
 /* ================= AVISOS AL MÓVIL · 手机提醒 (Supabase Web Push) ================= */
@@ -1173,25 +1304,43 @@ function markThreadRead(who){
   (S.msgs||[]).forEach(m=>{ if(m.to===who){ m.rd=m.rd||[]; if(!m.rd.includes(who)){ m.rd.push(who); ch=true; } } });
   if(ch){ save(); if(S.session) render(); }
 }
-function openChat(cid){
+function deleteMsgs(ids){
+  S.msgDel=S.msgDel||{}; const now=Date.now();
+  ids.forEach(id=>{ S.msgDel[id]=now; });
+  /* olvidar borrados de hace más de 60 días */
+  Object.keys(S.msgDel).forEach(id=>{ if(now-S.msgDel[id]>60*864e5) delete S.msgDel[id]; });
+  S.msgs=(S.msgs||[]).filter(m=>!S.msgDel[m.id]);
+  save();
+}
+function openChat(t){
   const isAdmin=S.session.role==='admin';
-  const who=nowRole();
-  const c=cleaner(cid)||{name:'Recepción',color:'#0e1c3d'};
-  const list=threadOf(cid);
-  let h='<div class="sheet-h"><h3>'+(isAdmin?('💬 '+esc(c.name)):'💬 Recepción · 前台')+'</h3><button class="x" data-act="close">✕</button></div>';
-  h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span class="av3" style="background:'+(c.color||'#0e1c3d')+'">'+esc((c.name||'R').slice(0,1))+'</span>'+
-     '<span style="font-size:12px;color:#7b8aa5">'+(isAdmin?('Habla con '+esc(c.name)+' · 和她对话'):'Escribe a recepción · 给前台发消息')+'</span></div>';
+  const me=nowRole();
+  if(!t||t===me){ openChatList(); return; }
+  const g=isGroup(t)?groupOf(t):null;
+  if(isGroup(t)&&!g){ toast('Grupo eliminado · 群已解散'); openChatList(); return; }
+  const list=thread(me,t);
+  const canEdit=g&&(isAdmin||g.by===me);
+  let h='<div class="sheet-h"><h3>'+(g?'👥 ':'💬 ')+esc(convName(t))+'</h3><button class="x" data-act="close">✕</button></div>';
+  h+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">'+
+     '<button class="btn btn-sm btn-ghost" data-act="chatlist">‹ 全部聊天</button>'+
+     '<span style="font-size:12px;color:#7b8aa5;flex:1">'+(g?esc(g.members.map(x=>x==='admin'?'前台':(cleaner(x)||{name:'?'}).name).join('、')):'')+'</span>'+
+     (canEdit?'<button class="btn btn-sm btn-ghost" data-act="editgroup" data-k="'+g.id+'">⚙️ 群设置</button>':'')+'</div>';
   h+='<div class="thread" id="thread">';
   if(!list.length) h+='<div style="font-size:13px;color:#8b96ab;text-align:center;padding:18px 0">Sin mensajes todavía · 还没有消息</div>';
-  list.forEach(m=>{ const mine=m.from===who;
-    h+='<div class="bub '+(mine?'me':'them')+'">'+esc(m.text)+'<span class="t">'+hhmm(m.at)+(mine?' ✓':'')+'</span></div>'; });
+  let lastDay='';
+  list.forEach(m=>{ const mine=m.from===me;
+    const dk=new Date(m.at).toISOString().slice(0,10);
+    if(dk!==lastDay){ lastDay=dk; h+='<div style="text-align:center;font-size:10.5px;color:#93a0b6;margin:6px 0">'+esc(fechaLarga(dk))+'</div>'; }
+    h+='<div class="bub '+(mine?'me':'them')+'">'+(g&&!mine?'<div style="font-size:10.5px;font-weight:800;opacity:.7;margin-bottom:2px">'+esc(personName(m.from))+'</div>':'')+
+      esc(m.text)+'<span class="t">'+hhmm(m.at)+(mine?' ✓':'')+
+      (isAdmin?' <b data-act="delmsg" data-k="'+m.id+'" data-cid="'+esc(t)+'" title="Borrar · 删除" style="cursor:pointer;margin-left:6px;opacity:.7">🗑</b>':'')+'</span></div>'; });
   h+='</div>';
-  const quick=isAdmin?['¿Cuánto falta? · 还要多久','Sube a la 3ª planta · 去3楼','Revisa 8101, gracias','Gracias ✓ 谢谢']:['Voy ahora · 马上到','Falta papel · 缺纸','Habitación lista · 房间好了','Necesito ayuda · 需要帮忙','Me equivoqué, pulsé FIN · 我按错了'];
-  h+='<div class="chips">'+quick.map(q=>'<button class="chip" data-act="qmsg" data-k="'+esc(q)+'" data-cid="'+cid+'">'+esc(q)+'</button>').join('')+'</div>';
-  h+='<div class="chatrow"><input class="inp" id="msgTA" placeholder="Escribe aquí · 在这里写..." style="flex:1"><button class="btn btn-primary" data-act="sendmsg" data-k="'+cid+'">➤</button></div>';
-  h+='<div class="note" style="margin-top:10px;font-size:11.5px">Los mensajes llegan a su móvil en unos segundos (con la nube conectada). · 消息几秒内到对方手机。</div>';
+  if(isAdmin&&list.length) h+='<div style="text-align:right;margin:4px 0 2px"><button class="btn btn-sm btn-ghost" data-act="clearchat" data-k="'+esc(t)+'" style="color:#b91c1c">🗑 '+T('Borrar toda la conversación','清空聊天记录')+'</button></div>';
+  const quick=isAdmin?['¿Cuánto falta? · 还要多久','Sube a la 3ª planta · 去3楼','Revisa 8101, gracias','Gracias ✓ 谢谢']:['Voy ahora · 马上到','Falta papel · 缺纸','Habitación lista · 房间好了','Necesito ayuda · 需要帮忙','Gracias · 谢谢'];
+  h+='<div class="chips">'+quick.map(q=>'<button class="chip" data-act="qmsg" data-k="'+esc(q)+'" data-cid="'+esc(t)+'">'+esc(q)+'</button>').join('')+'</div>';
+  h+='<div class="chatrow"><input class="inp" id="msgTA" placeholder="Escribe aquí · 在这里写..." style="flex:1"><button class="btn btn-primary" data-act="sendmsg" data-k="'+esc(t)+'">➤</button></div>';
   openModal(h);
-  markThreadRead(who);
+  markRead(me,t);
   setTimeout(()=>{ const th=document.getElementById('thread'); if(th) th.scrollTop=th.scrollHeight; },30);
 }
 function adminChat(k,day){
@@ -1199,7 +1348,9 @@ function adminChat(k,day){
   let h='<div class="card tight"><div class="card-h"><h3>💬 Mensajes · 消息</h3><span class="sub">'+(total?total+' sin leer · 未读':'todo leído ✓')+'</span></div>'+
     '<div class="chatrow"><input class="inp" id="bcTA" placeholder="Aviso a todas · 发给所有人" style="flex:1"><button class="btn btn-primary" data-act="sendall">➤</button></div>'+
     '<button class="btn btn-danger btn-sm btn-block" style="margin-top:9px" data-act="sosall">🚨 Llamar a todas · 呼叫所有人</button></div>';
-  h+='<div class="card tight chatlist">';
+  h+='<button class="btn btn-primary btn-block" data-act="newchat" style="margin:0 0 10px">＋ '+T('Nuevo mensaje / grupo (varias personas)','新消息 / 建群（可以选几个人）')+'</button>';
+  h+='<div class="card tight chatlist">'+convList('admin').map(t=>convRow('admin',t)).join('')+'</div>';
+  h+='<div style="display:none">';
   S.cfg.cleaners.filter(c=>c.active).forEach(c=>{
     const th=threadOf(c.id), last=th[th.length-1], un=unreadFrom(c.id);
     h+='<div class="rowc" data-act="chat" data-k="'+c.id+'"><span class="av3" style="background:'+c.color+'">'+esc(c.name.slice(0,1))+'</span>'+
@@ -1786,12 +1937,12 @@ function renderCleaner(app){
       '</div></div>';
   }
   const unreadM=unreadMsgFor(cid);
-  const thM=threadOf(cid); const lastM=thM[thM.length-1];
+  const lastM=(S.msgs||[]).filter(m=>m.from===cid||msgForMe(m,cid)).sort((a,b)=>a.at-b.at).pop();
   if(unreadM||lastM){
-    h+='<div class="card tight" data-act="chat" data-k="'+cid+'" style="cursor:pointer;background:'+(unreadM?'#fff6f6':'#fbfcfe')+';border-color:'+(unreadM?'#f3c9c9':'#e6ecf5')+'">'+
+    h+='<div class="card tight" data-act="chat" data-k="" style="cursor:pointer;background:'+(unreadM?'#fff6f6':'#fbfcfe')+';border-color:'+(unreadM?'#f3c9c9':'#e6ecf5')+'">'+
       '<div style="display:flex;gap:10px;align-items:center"><span style="font-size:20px">💬</span>'+
       '<div style="flex:1;min-width:0"><div style="font-size:10.5px;letter-spacing:1.2px;font-weight:800;color:'+(unreadM?'#b91c1c':'#6b7890')+'">'+(unreadM?('NUEVO · '+unreadM+' 条'):'MENSAJES · 消息')+'</div>'+
-      '<div style="font-size:13.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(lastM?lastM.text:'Escribe a recepción')+'</div>'+
+      '<div style="font-size:13.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(lastM?((lastM.from===cid?'我: ':personName(lastM.from).split(' ')[0]+': ')+lastM.text):'Escribe a recepción')+'</div>'+
       '<div style="font-size:11px;color:#8b96ab;margin-top:2px">'+(lastM?hhmm(lastM.at)+' · ':'')+'Pulsa para abrir</div></div>'+
       '<span style="color:#c8a962;font-size:18px">›</span></div></div>';
   }
@@ -2422,9 +2573,11 @@ function adminSet(k,day){
 
   h+='<div class="card"><div class="card-h"><h3>'+T('Trabajos extras','额外工作')+'</h3><span class="sub">+puntos</span></div>';
   S.cfg.extras.forEach(e=>{
-    h+='<div class="list-row"><div class="g"><div class="t" style="font-size:13.5px">'+esc(e.name)+'</div><div class="s">'+esc(e.es)+'</div></div>'+
-      '<span class="pill">+'+e.pts+'</span></div>';
+    h+='<div class="list-row"><div class="g"><div class="t" style="font-size:13.5px">'+esc(e.name)+'</div><div class="s">'+esc(e.es||'')+'</div></div>'+
+      '<span class="pill">+'+e.pts+'</span>'+
+      '<button class="btn btn-sm btn-ghost" data-act="editextra" data-k="'+e.id+'" style="margin-left:6px" title="Editar">✏️</button></div>';
   });
+  h+='<div class="btnrow" style="margin-top:10px"><button class="btn btn-ghost" data-act="editextra" data-k="">＋ '+T('Añadir trabajo extra','添加额外工作')+'</button></div>';
   h+='<div style="font-size:11.5px;color:#7b8aa5;margin-top:8px">Se apuntan ellas mismas cuando no hay mucho trabajo. 不忙的时候她们自己点。</div></div>';
 
   { const ps=pushState();
@@ -2615,6 +2768,22 @@ function openCleaner(cid){
         '<div class="s">'+(t.status==='done'?'✓ '+hhmm(t.rounds[t.rounds.length-1].end):t.status==='doing'?'en curso':'pendiente')+'</div></div></div>';});
   }
   openModal(h);
+}
+function openEditExtra(eid){
+  const e=eid?(S.cfg.extras||[]).find(x=>x.id===eid):{name:'',es:'',pts:2};
+  if(!e) return;
+  let h='<div class="sheet-h"><h3>'+(eid?T('Editar trabajo extra','编辑额外工作'):T('Nuevo trabajo extra','添加额外工作'))+'</h3><button class="x" data-act="close">✕</button></div>'+
+    '<label class="lb">Nombre en chino · 中文名称</label><input class="inp" id="eName" value="'+esc(e.name)+'" placeholder="例如：擦窗户">'+
+    '<label class="lb">Nombre en español · 西语名称</label><input class="inp" id="eEs" value="'+esc(e.es||'')+'" placeholder="Ej.: Limpiar cristales">'+
+    '<label class="lb">Puntos · 积分</label><input class="inp" id="ePts" type="number" min="0" max="20" step="0.5" value="'+(e.pts!=null?e.pts:2)+'">'+
+    '<div class="btnrow" style="margin-top:14px"><button class="btn btn-primary" data-act="saveextra" data-k="'+(eid||'')+'">'+T('Guardar','保存')+'</button>'+
+    (eid?'<button class="btn btn-danger" data-act="delextra" data-k="'+eid+'">'+T('Eliminar','删除')+'</button>':'')+'</div>';
+  openModal(h);
+}
+function syncExtrasToday(){
+  const day=S.days[TODAY()]; if(!day) return;
+  day.extras=day.extras||{};
+  (S.cfg.extras||[]).forEach(e=>{ if(!day.extras[e.id]) day.extras[e.id]={assignee:null,status:'none',rounds:[],u:Date.now()}; });
 }
 function openEditZone(zid){
   const z=zid?(S.cfg.zones||[]).find(x=>x.id===zid):{name:'',es:'',owner:''};
@@ -2933,19 +3102,40 @@ function handle(act,k,el){
     case 'logout': S.session=null; save(); UI.pick=null;UI.pin='';render(); break;
     case 'lang': UI.lang=k; try{localStorage.setItem('hne_lang',k)}catch(e){}; closeModal(); render(); break;
     case 'notices': openNotices(S.session.role==='admin'?'admin':S.session.uid); break;
-    case 'chat': { const isAd=S.session.role==='admin'; openChat(isAd?(k||'c1'):S.session.uid); break; }
+    case 'chat': { openChat(k||''); break; }
+    case 'chatlist': { openChatList(); break; }
+    case 'newchat': { openNewChat(); break; }
+    case 'newchatgo': {
+      const me=nowRole(); const sel=$$('[data-pick]').filter(x=>x.checked).map(x=>x.dataset.pick);
+      if(!sel.length){ toast('请选择至少 1 个人 · Elige a alguien'); break; }
+      if(sel.length===1){ openChat(sel[0]); break; }
+      const members=[me].concat(sel).filter((x,i,a)=>a.indexOf(x)===i).sort();
+      S.groups=S.groups||[];
+      let g=S.groups.find(x=>!x.del&&x.members.slice().sort().join(',')===members.join(','));
+      const nm=($('#gName').value||'').trim();
+      if(!g){ g={id:uid('g'),name:nm||members.map(x=>x==='admin'?'前台':(cleaner(x)||{name:'?'}).name).join('、'),members,by:me,at:Date.now(),u:Date.now()}; S.groups.push(g); save(); }
+      else if(nm&&nm!==g.name){ g.name=nm; g.u=Date.now(); save(); }
+      openChat('g:'+g.id); break;
+    }
+    case 'editgroup': { openEditGroup(k); break; }
+    case 'savegroup': {
+      const g=(S.groups||[]).find(x=>x.id===k); if(!g) break;
+      const sel=$$('[data-pick]').filter(x=>x.checked).map(x=>x.dataset.pick);
+      if(sel.length<2){ toast('群里至少要 2 个人 · Mínimo 2'); break; }
+      g.name=($('#gName').value||'').trim()||g.name; g.members=sel; g.u=Date.now(); save(); openChat('g:'+g.id); toast(T('Guardado','已保存')); break;
+    }
+    case 'delgroup': { const g=(S.groups||[]).find(x=>x.id===k); if(!g) break; g.del=true; g.u=Date.now(); save(); closeModal(); render(); toast(T('Grupo eliminado','群已解散')); break; }
     case 'sendmsg': {
-      const isAd=S.session.role==='admin'; const cid=isAd?(k||'c1'):S.session.uid;
+      const me=nowRole(); const to=k;
       const box=document.getElementById('msgTA'); const txt=box?box.value:'';
       if(!String(txt||'').trim()){ toast('Escribe algo · 写点什么'); break; }
-      pushMsg(isAd?'admin':cid, isAd?cid:'admin', txt);
-      openChat(cid); toast('Enviado ✓ · 已发送'); break;
+      pushMsg(me, to, txt);
+      openChat(to); toast('Enviado ✓ · 已发送'); break;
     }
     case 'qmsg': {
-      const isAd=S.session.role==='admin';
-      let cid=isAd?(el.dataset.cid||UI.chatWith||'c1'):S.session.uid;
-      pushMsg(isAd?'admin':cid, isAd?cid:'admin', k);
-      openChat(cid); toast('Enviado ✓ · 已发送'); break;
+      const me=nowRole(); const to=el.dataset.cid;
+      pushMsg(me, to, k);
+      openChat(to); toast('Enviado ✓ · 已发送'); break;
     }
     case 'sendall': {
       const box=document.getElementById('bcTA'); const txt=box?box.value:'';
@@ -3105,6 +3295,15 @@ function handle(act,k,el){
       S.cfgU=Date.now(); save(); closeModal(); render(); toast('Guardado'); break;
     }
     case 'editzone': openEditZone(k||null); break;
+    case 'editextra': openEditExtra(k||null); break;
+    case 'saveextra': {
+      const name=$('#eName').value.trim(); if(!name) return toast(T('Falta el nombre','请填写名称'));
+      const es=$('#eEs').value.trim(); const pts=Math.max(0,Math.min(20,parseFloat($('#ePts').value)||0));
+      if(k){ const e=S.cfg.extras.find(x=>x.id===k); if(e) Object.assign(e,{name,es,pts,u:Date.now()}); }
+      else S.cfg.extras.push({id:uid('e'),name,es,pts,u:Date.now()});
+      S.cfgU=Date.now(); syncExtrasToday(); save(); closeModal(); render(); toast(T('Guardado','已保存')); break;
+    }
+    case 'delextra': { S.cfg.extras=S.cfg.extras.filter(x=>x.id!==k); S.cfgU=Date.now(); save(); closeModal(); render(); toast(T('Eliminado','已删除')); break; }
     case 'savezone': {
       const name=$('#zName').value.trim(); if(!name) return toast(T('Falta el nombre','请填写名称'));
       const es=$('#zEs').value.trim(), owner=$('#zOwner').value;
@@ -3133,6 +3332,13 @@ function handle(act,k,el){
     case 'chkundo': { const d=ensureDay(UI.sessionAdminDate()); if(d.checks) delete d.checks[k]; save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
     case 'printrep': printReparto(UI.date); break;
+    case 'delmsg': { const cid=el.dataset.cid; deleteMsgs([k]); openChat(cid); toast(T('Mensaje borrado','已删除')); break; }
+    case 'clearchat': {
+      openModal('<div class="sheet-h"><h3>🗑 '+T('Borrar conversación','清空聊天记录')+'</h3><button class="x" data-act="close">✕</button></div>'+
+        '<div style="font-size:14.5px;margin:6px 0 14px">'+T('Se borran todos los mensajes con','将删除和')+' <b>'+esc(convName(k))+'</b> '+T('en todos los móviles. No se puede deshacer.','的全部消息（所有手机上都会删掉），删除后不能恢复。')+'</div>'+
+        '<div class="btnrow"><button class="btn btn-danger" data-act="clearchatok" data-k="'+esc(k)+'">'+T('Borrar todo','全部删除')+'</button><button class="btn btn-ghost" data-act="chat" data-k="'+esc(k)+'">'+T('Cancelar','取消')+'</button></div>');
+      break; }
+    case 'clearchatok': { deleteMsgs(thread('admin',k).map(m=>m.id)); closeModal(); render(); toast(T('Conversación borrada','聊天记录已清空')); break; }
     case 'doprint': { closeModal(); try{ window.print(); }catch(e){} break; }
     case 'outsel': { UI.outSel=UI.outSel||{}; if(UI.outSel[k]) delete UI.outSel[k]; else UI.outSel[k]=1; render(); break; }
     case 'outall': { const d=S.days[UI.sessionAdminDate()]; if(!d) break; UI.outSel={};
