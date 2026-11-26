@@ -182,6 +182,61 @@ textarea.inp{min-height:76px;resize:vertical}
 .obs-box{margin-top:9px;background:#fbfcfe;border:1px dashed #d7dfec;border-radius:9px;padding:9px 10px;font-size:13px;color:#384766}
 .obs-box .k{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
 .thumbs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.cheer{text-align:center;padding:14px 8px 16px;margin:4px 0 12px;border-radius:16px;background:linear-gradient(160deg,#fff7e0,#eef4ff)}
+.cheer-ic{font-size:54px;line-height:1;margin-bottom:10px;animation:cheerPop .6s ease-out}
+.cheer-q{font-size:18px;font-weight:800;line-height:1.5;color:#0e1c3d}
+.cheer-es{font-size:12.5px;color:#6b7890;margin-top:6px}
+@keyframes cheerPop{0%{transform:scale(.3);opacity:0}70%{transform:scale(1.15);opacity:1}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.cheer-ic{animation:none}}
+
+/* ===== Pantalla de entrada · estilo hotel de lujo ===== */
+body.lux-on{background:#08132b}
+.lux{position:relative;min-height:100vh;min-height:100dvh;color:#f3ead7;overflow:hidden;
+  background:radial-gradient(120% 80% at 50% -10%,#1d3566 0%,#0e1c3d 45%,#070f24 100%);
+  padding:calc(26px + env(safe-area-inset-top)) 18px calc(30px + env(safe-area-inset-bottom))}
+.lux:before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.07;
+  background-image:repeating-linear-gradient(45deg,#c8a962 0 1px,transparent 1px 22px),repeating-linear-gradient(-45deg,#c8a962 0 1px,transparent 1px 22px)}
+.lux .in{position:relative;max-width:520px;margin:0 auto}
+.lux-crest{width:96px;height:96px;margin:6px auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,#1f3a70,#0b1733);border:1.5px solid #c8a962;box-shadow:0 0 0 6px rgba(200,169,98,.12),0 0 0 7px rgba(200,169,98,.45),0 18px 40px rgba(0,0,0,.45);
+  font-family:"Didot","Bodoni 72","Playfair Display",Georgia,serif;font-size:30px;letter-spacing:2px;color:#e6d5a8}
+.lux-crest{animation:luxIn .9s ease-out}
+.lux-name{text-align:center;font-family:"Didot","Bodoni 72","Playfair Display",Georgia,serif;font-size:25px;letter-spacing:5px;color:#e9dcb8;text-transform:uppercase;line-height:1.15}
+.lux-sub{text-align:center;font-size:11.5px;letter-spacing:3.5px;color:#a8b3cc;text-transform:uppercase;margin-top:6px}
+.lux-orn{display:flex;align-items:center;gap:10px;justify-content:center;margin:16px auto 6px;color:#c8a962;font-size:11px}
+.lux-orn:before,.lux-orn:after{content:"";height:1px;width:70px;background:linear-gradient(90deg,transparent,#c8a962)}
+.lux-orn:after{background:linear-gradient(90deg,#c8a962,transparent)}
+.lux-hi{text-align:center;font-size:15px;color:#f3ead7;margin-top:6px}
+.lux-clock{text-align:center;font-family:"Didot","Bodoni 72","Playfair Display",Georgia,serif;font-size:40px;color:#fff;letter-spacing:2px;margin-top:2px}
+.lux-date{text-align:center;font-size:12px;color:#a8b3cc;letter-spacing:1.5px}
+.lux-h{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#c8a962;margin:24px 2px 10px;display:flex;align-items:center;gap:10px}
+.lux-h:after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(200,169,98,.6),transparent)}
+.lux .user-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.lux .user-pick{background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));border:1px solid rgba(200,169,98,.35);border-radius:16px;padding:16px 10px 14px;
+  color:#f3ead7;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);transition:transform .15s,box-shadow .2s,border-color .2s}
+.lux .user-pick:active{transform:scale(.97)}
+.lux .user-pick .av{width:50px;height:50px;font-size:20px;box-shadow:0 0 0 2px #0e1c3d,0 0 0 3.5px rgba(200,169,98,.8)}
+.lux .user-pick .nm{font-size:16px;color:#fff;letter-spacing:.5px}
+.lux .user-pick .rl{color:#a8b3cc;font-size:11px;letter-spacing:.5px}
+.lux .user-pick.on{border-color:#e6d5a8;background:linear-gradient(160deg,rgba(200,169,98,.28),rgba(200,169,98,.08));box-shadow:0 0 0 3px rgba(200,169,98,.25),0 10px 30px rgba(0,0,0,.35)}
+.lux .rec{display:flex;align-items:center;gap:14px;text-align:left;padding:14px 16px}
+.lux .rec .av{margin:0;background:linear-gradient(145deg,#c8a962,#8c7034)!important;color:#0e1c3d}
+.lux-pin{margin-top:16px;border-radius:20px;padding:18px 16px 14px;background:linear-gradient(170deg,rgba(255,255,255,.09),rgba(255,255,255,.03));
+  border:1px solid rgba(200,169,98,.45);box-shadow:0 20px 50px rgba(0,0,0,.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:luxIn .35s ease-out}
+.lux-pin .t{text-align:center;font-size:14px;color:#e9dcb8;letter-spacing:1px}
+.lux-pin .lb{color:#a8b3cc}
+.lux-pin .inp{background:rgba(255,255,255,.06);border-color:rgba(200,169,98,.4);color:#fff}
+.lux .pin-dot{background:transparent;border-color:rgba(200,169,98,.7);width:16px;height:16px}
+.lux .pin-dot.f{background:#e6d5a8;border-color:#e6d5a8;box-shadow:0 0 10px rgba(230,213,168,.6)}
+.lux .key{background:rgba(255,255,255,.06);border:1px solid rgba(200,169,98,.3);color:#fff;font-size:22px;border-radius:14px;height:56px}
+.lux .key:active{background:rgba(200,169,98,.25)}
+.lux .key.ok{background:linear-gradient(145deg,#e6d5a8,#c8a962);color:#0e1c3d;border-color:#c8a962;font-weight:800}
+.lux .btn-ghost{background:transparent;color:#e9dcb8;border-color:rgba(200,169,98,.4)}
+.lux .danger-note{background:rgba(185,28,28,.18);border-color:rgba(248,113,113,.4);color:#fecaca}
+.lux-note{text-align:center;font-size:12px;color:#a8b3cc;margin-top:18px;line-height:1.6}
+.lux-foot{text-align:center;color:#6f7d9c;font-size:10.5px;letter-spacing:2.5px;text-transform:uppercase;margin-top:26px}
+@keyframes luxIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.lux-crest,.lux-pin{animation:none}}
 .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
 #pv{position:fixed;inset:0;z-index:9999;background:rgba(6,10,22,.94);display:none;flex-direction:column;align-items:center;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
 #pv.on{display:flex}
@@ -1881,7 +1936,7 @@ function openAddIssue(room,note,kind){
 }
 function roomInText(t){ const m=String(t||'').match(/\b8[1-3]\d{2}\b/); return m&&ROOMS.find(r=>r.no===m[0])?m[0]:''; }
 function adminRev(k,day){
-  if(!day) return '<div class="empty"><div class="ic">🗓</div>Todavía no hay reparto para este día. · 今天还没有排房。</div>';
+  if(!day) return '<div class="empty"><div class="ic">🗓</div>Todavía no hay reparto para este día. · 这天还没有排房。</div>'+issuesCard(k,null);
   const rooms=ROOMS.filter(r=>['CO','X'].includes(day.status[r.no]));
   const checks=day.checks||{};
   const cleaning=rooms.filter(r=>(day.tasks[r.no]&&day.tasks[r.no].status==='done')||checks[r.no]);
@@ -2231,35 +2286,45 @@ function saveTimes(){
 }
 
 /* ================= LOGIN ================= */
+function luxGreeting(){ const h=new Date().getHours(); return h<12?'早上好 · Buenos días':(h<20?'下午好 · Buenas tardes':'晚上好 · Buenas noches'); }
 function renderLogin(app){
   const cs=S.cfg.cleaners.filter(c=>c.active);
+  document.body.classList.add('lux-on');
+  const now=new Date();
   app.innerHTML=
-  '<div class="wrap narrow">'+
-    '<div class="login-hero"><div class="k">Hotel Nueva Europa</div><h1>酒店清洁管理</h1>'+
-      '<div class="p">清洁 · 房间 · 考勤</div></div>'+
-    '<div class="sec-title">选择你的名字 ✓· <b>Elige tu nombre测试</b></div>'+
+  '<div class="lux"><div class="in">'+
+    '<div class="lux-crest">HNE</div>'+
+    '<div class="lux-name">'+esc(S.cfg.hotel||'Hotel Nueva Europa').replace(/^HOTEL\s+/i,'Hotel<br>')+'</div>'+
+    '<div class="lux-sub">Housekeeping · 客房清洁管理</div>'+
+    '<div class="lux-orn">✦</div>'+
+    '<div class="lux-hi">'+luxGreeting()+'</div>'+
+    '<div class="lux-clock" id="luxClock">'+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+'</div>'+
+    '<div class="lux-date">'+esc(fechaLarga(TODAY()))+'</div>'+
+    '<div class="lux-h">选择你的名字 · Elige tu nombre</div>'+
     '<div class="user-grid">'+
       cs.map(c=>'<div class="user-pick '+(UI.pick===c.id?'on':'')+'" data-act="pick" data-k="'+c.id+'">'+
         '<div class="av" style="background:'+c.color+'">'+esc(c.name.slice(0,1))+'</div>'+
-        '<div class="nm">'+esc(c.name)+'</div><div class="rl">账号 '+esc(c.login||'')+'</div></div>').join('')+
+        '<div class="nm">'+esc(c.name)+(c.alias?' <span style="font-weight:500;opacity:.7;font-size:13px">'+esc(c.alias)+'</span>':'')+'</div><div class="rl">'+esc(c.login||'')+'</div></div>').join('')+
     '</div>'+
-    '<div class="sec-title" style="margin-top:16px">前台 · <b>Recepción</b></div>'+
-    '<div class="user-pick '+(UI.pick==='admin'?'on':'')+'" data-act="pick" data-k="admin" style="display:flex;align-items:center;gap:12px;text-align:left">'+
-      '<div class="av" style="background:#0e1c3d;margin:0">🏨</div><div><div class="nm">前台 / Reinicio</div><div class="rl">Admin · 后台</div></div></div>'+
-    (UI.pick? '<div class="card" style="margin-top:14px">'+
-      '<div class="card-h"><h3>'+(UI.pick==='admin'?'PIN 后台':'输入密码 · PIN')+'</h3><span class="sub">4 位</span></div>'+
+    '<div class="lux-h">前台 · Recepción</div>'+
+    '<div class="user-pick rec '+(UI.pick==='admin'?'on':'')+'" data-act="pick" data-k="admin">'+
+      '<div class="av">🛎</div><div><div class="nm">前台后台</div><div class="rl">Panel de control · Admin</div></div></div>'+
+    (UI.pick? '<div class="lux-pin">'+
+      '<div class="t">'+(UI.pick==='admin'?'🔐 后台密码 · PIN':'🔐 '+esc((cleaner(UI.pick)||{}).name||'')+'，请输入密码 · PIN')+'</div>'+
       (UI.pick!=='admin'? '<label class="lb">账号 ID</label><input class="inp" id="loginId" value="'+esc((cleaner(UI.pick)||{}).login||'')+'" autocapitalize="off">':'')+
       '<div class="pin-dots">'+[0,1,2,3].map(i=>'<div class="pin-dot '+(UI.pin.length>i?'f':'')+'"></div>').join('')+'</div>'+
       (UI.pinErr?'<div class="danger-note" style="margin-top:8px">'+esc(UI.pinErr)+'</div>':'')+
       '<div class="keypad">'+[1,2,3,4,5,6,7,8,9].map(n=>'<button class="key" data-act="key" data-k="'+n+'">'+n+'</button>').join('')+
         '<button class="key" data-act="key" data-k="del">⌫</button>'+
         '<button class="key" data-act="key" data-k="0">0</button>'+
-        '<button class="key" data-act="key" data-k="ok" style="background:#0e1c3d;color:#c8a962;border-color:#0e1c3d">✓</button>'+
+        '<button class="key ok" data-act="key" data-k="ok">✓</button>'+
       '</div>'+
-      '<button class="btn btn-ghost btn-block" style="margin-top:10px" data-act="pick" data-k="">取消</button>'+
-    '</div>' : '<div class="note" style="margin-top:14px">输入密码登录，系统自动记录上班时间。· Entra con tu nombre y PIN: la entrada se registra sola.</div>')+
-    '<div style="text-align:center;color:#93a0b6;font-size:11px;margin-top:18px;letter-spacing:1px">'+esc(S.cfg.hotel)+' · '+fechaLarga(TODAY())+'</div>'+
-  '</div>';
+      '<button class="btn btn-ghost btn-block" style="margin-top:12px" data-act="pick" data-k="">取消 · Cancelar</button>'+
+    '</div>' : '<div class="lux-note">输入密码登录，系统自动记录上班时间。<br>Entra con tu nombre y PIN: la entrada se registra sola.</div>')+
+    '<div class="lux-foot">✦ '+esc(S.cfg.hotel||'')+' ✦</div>'+
+  '</div></div>';
+  clearInterval(window.__luxT);
+  window.__luxT=setInterval(()=>{ const el=document.getElementById('luxClock'); if(!el){ clearInterval(window.__luxT); return; } const d=new Date(); el.textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); },15000);
 }
 function findCleanerByLogin(q){
   q=(q||'').trim().toLowerCase(); if(!q) return null;
@@ -3286,6 +3351,41 @@ function openCheckout(){
     '<button class="btn btn-gold btn-lg" data-act="checkoutok">确认打卡 · CONFIRMAR</button>';
   openModal(h);
 }
+/* ---------- palabras de ánimo al fichar la salida · 下班打卡后的鼓励 ---------- */
+const CHEERS=[
+  ['今天辛苦了！每一间干净的房间，都是客人满意的开始。 ✨','¡Buen trabajo! Cada habitación limpia hace feliz a un cliente.'],
+  ['你今天做得很棒，好好休息，明天见！ 💪','Lo has hecho genial hoy. ¡Descansa, hasta mañana!'],
+  ['谢谢你的认真和细心，酒店因为有你才这么干净。 💐','Gracias por tu cuidado: el hotel brilla gracias a ti.'],
+  ['一天的汗水没有白流，回家好好犒劳一下自己吧！ 🎁','Te lo has ganado: date un capricho al llegar a casa.'],
+  ['认真工作的你最美，今天也是了不起的一天！ 👏','Hoy también ha sido un gran día. ¡Eres una crack!'],
+  ['房间一间一间变干净，你真的很厉害。 🧹✨','Habitación a habitación, todo perfecto. ¡Qué bien!'],
+  ['辛苦一天了，记得多喝水、早点休息哦。 💧😊','Ha sido un día largo: bebe agua y descansa bien.'],
+  ['客人看不到你，但每一个细节都在说谢谢你。 🙏','Los clientes no te ven, pero cada detalle te lo agradece.'],
+  ['今天的你又进步了一点点，继续加油！ 📈','Hoy un poquito mejor que ayer. ¡Sigue así!'],
+  ['团队有你真好，明天我们继续一起努力！ 🤝','Qué suerte tenerte en el equipo. ¡Mañana más!'],
+  ['工作完成，现在是属于你自己的时间，好好享受！ 🌈','Trabajo hecho: ahora el tiempo es tuyo. ¡Disfrútalo!'],
+  ['你的努力前台都看在眼里，谢谢你！ 👀❤️','En recepción vemos tu esfuerzo. ¡Gracias!'],
+  ['每天把小事做好，就是了不起的大事。 ⭐','Hacer bien lo pequeño cada día es algo grande.'],
+  ['累了就好好睡一觉，明天又是元气满满的一天！ 😴🌙','Duerme bien: mañana, con energía renovada.'],
+  ['今天也平平安安、顺顺利利，真好！ 🍀','Otro día terminado sin problemas. ¡Bien hecho!']
+];
+function showCheer(cid){
+  const k=TODAY(), day=ensureDay(k), c=cleaner(cid)||{name:''};
+  const st=cleanerState(day,cid,Date.now());
+  let ms=0; st.rooms.forEach(r=>{const t=day.tasks[r.no]; if(t) ms+=(t.rounds||[]).filter(x=>x.start&&x.end&&!x.void).reduce((a,b)=>a+(b.end-b.start),0)});
+  let seed=0; (k+cid).split('').forEach(ch=>{ seed=(seed*31+ch.charCodeAt(0))%9973; });
+  const q=CHEERS[seed%CHEERS.length];
+  const allDone=st.rooms.length&&st.done.length===st.rooms.length;
+  let h='<div class="sheet-h"><h3>✅ 打卡成功！'+esc(c.name)+'，下班啦 🎉</h3><button class="x" data-act="close">✕</button></div>'+
+    '<div class="cheer"><div class="cheer-ic">'+(allDone?'🏆':'🌟')+'</div>'+
+    '<div class="cheer-q">'+esc(q[0])+'</div><div class="cheer-es">'+esc(q[1])+'</div></div>'+
+    '<div style="text-align:center;font-size:13px;color:#41506b;margin-bottom:8px">🕐 下班时间 <b>'+hhmm(Date.now())+'</b></div>'+
+    '<div class="kpis"><div class="kpi"><div class="v">🛏 '+st.done.length+'</div><div class="l">今天打扫的房间</div></div>'+
+    '<div class="kpi"><div class="v">⏱ '+durTxt(ms)+'</div><div class="l">打扫用时</div></div></div>'+
+    (allDone?'<div style="text-align:center;font-weight:800;color:#15803d;margin:10px 0 2px">🏅 今天的房间全部完成，太棒了！</div>':'')+
+    '<button class="btn btn-gold btn-lg btn-block" data-act="close" style="margin-top:12px">谢谢，明天见 👋</button>';
+  openModal(h);
+}
 function confirmModal(text,label,act,data){
   openModal('<div class="sheet-h"><h3>Confirmar</h3><button class="x" data-act="close">✕</button></div>'+
     '<div style="font-size:15px;line-height:1.6">'+text+'</div>'+
@@ -3504,7 +3604,7 @@ function handle(act,k,el){
   switch(act){
     case 'mask': if(el===el.closest('.mask')) closeModal(); break;
     case 'close': closeModal(); break;
-    case 'pick': UI.pick=k||null; UI.pin=''; UI.pinErr=''; render(); break;
+    case 'pick': UI.pick=k||null; UI.pin=''; UI.pinErr=''; render(); if(UI.pick) setTimeout(()=>{ const p=document.querySelector('.lux-pin'); if(p&&p.scrollIntoView) p.scrollIntoView({behavior:'smooth',block:'center'}); },60); break;
     case 'key':
       if(k==='del'){ UI.pin=UI.pin.slice(0,-1); render(); break; }
       if(k==='ok'){ if(UI.pin.length>=4) doLogin(UI.pick); else {UI.pinErr='Faltan dígitos';render();} break; }
@@ -3862,7 +3962,7 @@ function handle(act,k,el){
     case 'checkoutok': {
       const kk=TODAY(), a=attOf(kk,S.session.uid);
       if(!a.out){ a.out=Date.now(); a.u=Date.now(); logEv(ensureDay(kk),S.session.uid,'out','','Salida'); }
-      save(); closeModal(); render(); toast('✓ Jornada cerrada · 已打卡'); break;
+      save(); closeModal(); render(); showCheer(S.session.uid); break;
     }
     case 'saveset': {
       S.cfg.workStart=$('[data-inp="wstart"]').value||'08:00';
@@ -4036,6 +4136,7 @@ function tick(){
 }
 function render(){
   const app=$('#app');
+  document.body.classList.remove('lux-on');
   if(!S.session){ UI.pick=UI.pick||null; renderLogin(app); paintSos(); return; }
   if(S.session.role==='admin'){ renderAdmin(app); }
   else {
