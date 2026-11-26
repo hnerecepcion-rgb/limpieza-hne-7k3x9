@@ -1461,6 +1461,17 @@ function exportChecks(all){
   downloadBytes('REVISION_'+TODAY()+'.xlsx',bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   toast('Excel de revisión descargado · 已导出');
 }
+/* Prepara la hoja y pide confirmar: el clic del botón lanza la impresión (Safari/iPhone lo necesitan) */
+function showPrint(html,label){
+  const pa=document.getElementById('printArea');
+  pa.innerHTML='';
+  void pa.offsetHeight;
+  pa.innerHTML=html;
+  openModal('<div class="sheet-h"><h3>🖨 '+T('Imprimir','打印')+'</h3><button class="x" data-act="close">✕</button></div>'+
+    '<div style="font-size:15px;margin:6px 0 14px">'+T('Se va a imprimir','即将打印')+'：<b>'+esc(label)+'</b></div>'+
+    '<div class="btnrow"><button class="btn btn-primary" data-act="doprint">🖨 '+T('Imprimir ahora','开始打印')+'</button></div>');
+}
+window.addEventListener('afterprint',()=>{ const pa=document.getElementById('printArea'); if(pa) pa.innerHTML=''; });
 function printReparto(k){
   const day=S.days[k]; if(!day||!Object.keys(day.assign||{}).length){ toast(T('Primero reparte las habitaciones','请先自动分配房间')); return; }
   const people=S.cfg.cleaners.filter(c=>c.active&&!(day.rest||[]).includes(c.id));
@@ -1510,9 +1521,7 @@ function printReparto(k){
       '<div style="flex:1;border-top:1px solid #333;padding-top:1.5mm">Gobernanta · 领班</div>'+
     '</div>'+
   '</div>';
-  const pa=document.getElementById('printArea');
-  pa.innerHTML=html;
-  setTimeout(()=>{ window.print(); },150);
+  showPrint(html, T('Reparto de todas','总排房表'));
 }
 /* hoja individual: una página por empleada (cid=null → todas) */
 function printPersonal(k,cid){
@@ -1547,9 +1556,7 @@ function printPersonal(k,cid){
     '</div>';
   }).filter(Boolean);
   if(!pages.length){ toast(T('No tiene habitaciones hoy','今天没有分到房间')); return; }
-  const pa=document.getElementById('printArea');
-  pa.innerHTML=pages.join('');
-  setTimeout(()=>{ window.print(); },150);
+  showPrint(pages.join(''), cid?(cleaner(cid).name+(cleaner(cid).alias?' '+cleaner(cid).alias:'')):T('Una hoja por persona','每人一张')+' ('+pages.length+')');
 }
 function printParte(k){
   const day=S.days[k]; if(!day){ toast('Sin datos'); return; }
@@ -1595,9 +1602,7 @@ function printParte(k){
     '</div>'+
     '<div style="font-size:8pt;color:#777;margin-top:8mm">Generado por HNE Limpieza · '+esc(S.cfg.hotel)+'</div>'+
   '</div>';
-  const pa=document.getElementById('printArea');
-  pa.innerHTML=html;
-  setTimeout(()=>{ window.print(); },150);
+  showPrint(html, T('Parte diario','查房维修单'));
 }
 
 /* ================= HORAS A MANO · 手动改时间 ================= */
@@ -3128,6 +3133,7 @@ function handle(act,k,el){
     case 'chkundo': { const d=ensureDay(UI.sessionAdminDate()); if(d.checks) delete d.checks[k]; save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
     case 'printrep': printReparto(UI.date); break;
+    case 'doprint': { closeModal(); try{ window.print(); }catch(e){} break; }
     case 'outsel': { UI.outSel=UI.outSel||{}; if(UI.outSel[k]) delete UI.outSel[k]; else UI.outSel[k]=1; render(); break; }
     case 'outall': { const d=S.days[UI.sessionAdminDate()]; if(!d) break; UI.outSel={};
       ROOMS.forEach(r=>{ const t=d.tasks[r.no]; if(d.status[r.no]==='CO'&&!(t&&(t.out||t.status==='done'))) UI.outSel[r.no]=1; }); render(); break; }
