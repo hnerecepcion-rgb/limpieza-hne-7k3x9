@@ -182,7 +182,13 @@ textarea.inp{min-height:76px;resize:vertical}
 .obs-box{margin-top:9px;background:#fbfcfe;border:1px dashed #d7dfec;border-radius:9px;padding:9px 10px;font-size:13px;color:#384766}
 .obs-box .k{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);font-weight:700}
 .thumbs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
-.thumbs img{width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.thumbs img{width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
+#pv{position:fixed;inset:0;z-index:9999;background:rgba(6,10,22,.94);display:none;flex-direction:column;align-items:center;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
+#pv.on{display:flex}
+#pv img{max-width:100%;max-height:calc(100% - 70px);object-fit:contain;border-radius:8px;touch-action:pinch-zoom}
+#pv .pvbar{display:flex;gap:10px;align-items:center;margin-top:12px;color:#fff;font-size:14px}
+#pv button{background:rgba(255,255,255,.14);color:#fff;border:0;border-radius:12px;min-width:48px;height:44px;font-size:20px;cursor:pointer}
+#pv .pvx{position:absolute;top:calc(12px + env(safe-area-inset-top));right:12px}
 
 /* ---------- kpi ---------- */
 .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
@@ -358,6 +364,7 @@ tr.rowdone td{background:#f6fdf8}
 <div id="app"></div>
 <div id="modals"></div>
 <div id="printArea"></div>
+<div id="pv"><button class="pvx" data-pv="x">✕</button><img id="pvImg" alt="foto"><div class="pvbar"><button data-pv="-1">‹</button><span id="pvN"></span><button data-pv="1">›</button></div></div>
 <div id="toast" class="toast"></div>
 <script>
 /* ============================================================
@@ -973,7 +980,9 @@ function mergeRemote(rem){
       L.published=R.published; L.cfgU=R.cfgU; changed=true;
     }
     if(!L.checks) L.checks={};
-    if(R.checks) Object.keys(R.checks).forEach(no=>{ const a=L.checks[no], b=R.checks[no]; if(!a||((b.u||0)>(a.u||0))){ L.checks[no]=b; changed=true; } });
+    if(R.chkDel){ L.chkDel=L.chkDel||{}; Object.keys(R.chkDel).forEach(no=>{ if((R.chkDel[no]||0)>(L.chkDel[no]||0)){ L.chkDel[no]=R.chkDel[no]; changed=true; } }); }
+    if(L.chkDel) Object.keys(L.chkDel).forEach(no=>{ const a=L.checks[no]; if(a&&(a.u||0)<=L.chkDel[no]){ delete L.checks[no]; changed=true; } });
+    if(R.checks) Object.keys(R.checks).forEach(no=>{ const a=L.checks[no], b=R.checks[no]; if(L.chkDel&&(b.u||0)<=(L.chkDel[no]||0)) return; if(!a||((b.u||0)>(a.u||0))){ L.checks[no]=b; changed=true; } });
     ['tasks','zones','extras','issues'].forEach(sec=>{
       const rs=R[sec]||{};
       L[sec]=L[sec]||{};
@@ -1256,15 +1265,18 @@ function notifyCleaner(to,title,body,tag){
   return notifyPush(to==='all'?'cleaners':to,title,body,tag);
 }
 function myPushRole(){ return S.session&&S.session.role==='cleaner'?S.session.uid:'admin'; }
+/* la fila de recepción va aparte (#admin): si en ese móvil entra una empleada, recepción sigue recibiendo */
+function pushRowId(endpoint,role){ return role==='admin'?endpoint+'#admin':endpoint; }
 /* al entrar: si este móvil ya tenía avisos, apuntarlo a la persona que ha entrado */
 function refreshPushRole(){
   try{
     if(!pushSupported()||Notification.permission!=='granted'||localStorage.getItem('hnePushOn')!=='1') return;
+    if(myPushRole()==='admin') return; /* recepción solo se apunta con su botón */
     cloudConf(); if(!cloud.on) return;
     navigator.serviceWorker.ready.then(reg=>reg.pushManager.getSubscription()).then(function(sub){
       if(!sub) return; const j=sub.toJSON();
       return fetch(cloud.url+'/rest/v1/hne_push?on_conflict=id',{method:'POST',headers:cHeaders({'Prefer':'resolution=merge-duplicates,return=minimal'}),
-        body:JSON.stringify([{id:j.endpoint,role:myPushRole(),sub:j,dev:navigator.userAgent.slice(0,120),updated_at:new Date().toISOString()}])});
+        body:JSON.stringify([{id:pushRowId(j.endpoint,myPushRole()),role:myPushRole(),sub:j,dev:navigator.userAgent.slice(0,120),updated_at:new Date().toISOString()}])});
     }).catch(()=>{});
   }catch(e){}
 }
@@ -1289,7 +1301,7 @@ function enablePush(){
       const j=sub.toJSON();
       return fetch(cloud.url+'/rest/v1/hne_push?on_conflict=id',{method:'POST',
         headers:cHeaders({'Prefer':'resolution=merge-duplicates,return=minimal'}),
-        body:JSON.stringify([{id:j.endpoint,role:myPushRole(),sub:j,dev:navigator.userAgent.slice(0,120),updated_at:new Date().toISOString()}])
+        body:JSON.stringify([{id:pushRowId(j.endpoint,myPushRole()),role:myPushRole(),sub:j,dev:navigator.userAgent.slice(0,120),updated_at:new Date().toISOString()}])
       }).then(function(r){ if(!r.ok) throw new Error('guardar '+r.status); });
     }).then(function(){
       localStorage.setItem('hnePushOn','1'); render();
@@ -1593,8 +1605,23 @@ function openCheck(no){
   h+='<div class="btnrow"><button class="btn btn-ok btn-lg" style="flex:1" data-act="chkgo" data-v="1" data-k="'+no+'">✓ '+T('PASA','通过')+'</button>'+
      '<button class="btn btn-danger btn-lg" style="flex:1" data-act="chkgo" data-v="0" data-k="'+no+'">✗ '+T('NO PASA','不通过')+'</button></div>';
   h+='<div class="btnrow" style="margin-top:8px"><button class="btn btn-ghost btn-sm" data-act="chkgo" data-v="q" data-k="'+no+'">😠 '+T('Queja del cliente','客人投诉')+'</button>'+
-     (ch.at?'<button class="btn btn-ghost btn-sm" data-act="chkundo" data-k="'+no+'">'+T('Quitar revisión','取消记录')+'</button>':'')+'</div>';
+     (ch.at?'<button class="btn btn-ghost btn-sm" data-act="chkundo" data-k="'+no+'">↺ '+T('Quitar revisión (me equivoqué)','取消记录（点错了）')+'</button>':'')+'</div>'+
+     (ch.at?'<div style="font-size:11.5px;color:#7b8aa5;margin-top:8px">'+T('Ahora','现在是')+': <b>'+(ch.ok===1?'✓ '+T('Pasa','通过'):(ch.kind==='queja'?'😠 '+T('Queja','投诉'):'✗ '+T('No pasa','不通过')))+'</b> · '+hhmm(ch.at)+'. '+T('Pulsa otro botón para cambiarlo.','点上面别的按钮就能改。')+'</div>':'');
   openModal(h);
+}
+/* si la revisión anterior era ✗ y reabrió la habitación, y aún no la han vuelto a empezar: dejarla como estaba (limpia) */
+function undoReopen(k,day,no){
+  const prev=(day.checks||{})[no]; const t=day.tasks&&day.tasks[no];
+  if(!prev||prev.ok!==0||!t||t.status!=='pending') return false;
+  const rs=t.rounds||[]; const last=rs[rs.length-1];
+  if(!last||!last.reopen||last.start) return false;
+  rs.pop();
+  const done=rs.slice().reverse().find(x=>x.void&&x.end);
+  if(done) delete done.void;
+  t.status='done'; t.u=Date.now();
+  logEv(day,null,'undo-reopen','room:'+no,'Corrección de revisión');
+  if(t.assignee) sendNotice('前台改正了：'+no+' 房合格，不用重新打扫。','Corrección: la '+no+' está bien, no hace falta repetir.',t.assignee);
+  return true;
 }
 function saveCheck(no,v){
   const k=UI.sessionAdminDate(), day=ensureDay(k);
@@ -1602,6 +1629,7 @@ function saveCheck(no,v){
   const noteEl=document.getElementById('chkNote');
   const rp=document.getElementById('chkReopen');
   const prev=day.checks[no]||{};
+  if(v==='1') undoReopen(k,day,no);
   const note=(noteEl?noteEl.value:'').trim();
   day.checks[no]={ok:(v==='1'?1:0), kind:(v==='q'?'queja':'revision'), note:note, photos:prev.photos||[], by:'admin', at:Date.now(), u:Date.now(), reopen:(rp?!!rp.checked:true)};
   const t=taskOf(day,no);
@@ -1617,6 +1645,7 @@ function quickPass(no){
   const k=UI.sessionAdminDate(), day=ensureDay(k);
   day.checks=day.checks||{};
   const prev=day.checks[no]||{};
+  undoReopen(k,day,no);
   day.checks[no]={ok:1,kind:'revision',note:prev.note||'',photos:prev.photos||[],by:'admin',at:Date.now(),u:Date.now(),reopen:false};
   save(); render(); toast('✓ '+T('Pasa','通过'));
 }
@@ -3010,10 +3039,10 @@ function collectIssues(all){
     const d=S.days[k]; if(!d) return;
     ROOMS.forEach(r=>{
       const t=d.tasks&&d.tasks[r.no]; if(!t) return;
-      const obs=(t.obs||'').trim(); if(!obs) return;
+      const obs=(t.obs||'').trim(); if(!obs&&!(t.photos||[]).length) return;
       const rd=(t.rounds||[]).filter(x=>x.start&&x.end&&!x.void);
       const c=cleaner(d.assign[r.no]);
-      out.push({k,no:r.no,floor:r.floor,type:TYPES[r.type].es,st:d.status[r.no],who:c?c.name:'',endo:rd.length?hhmm(rd[rd.length-1].end):'',obs,photos:(t.photos||[]).length,fix:t.fix||null});
+      out.push({k,no:r.no,floor:r.floor,type:TYPES[r.type].es,st:d.status[r.no],who:c?c.name:'',endo:rd.length?hhmm(rd[rd.length-1].end):'',obs,photos:(t.photos||[]).length,pics:(t.photos||[]).slice(),fix:t.fix||null});
     });
   });
   return out;
@@ -3046,7 +3075,8 @@ function openIssues(){
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><b style="font-size:15px">'+x.no+'</b>'+
       '<span class="pill">'+esc(x.type)+'</span><span class="pill">'+x.st+'</span>'+
       '<span style="margin-left:auto;font-size:11.5px;color:#7b8aa5">'+esc(x.who)+(x.endo?' · '+x.endo:'')+'</span></div>'+
-      '<div style="font-size:13.5px;white-space:pre-wrap">'+esc(x.obs)+'</div>'+
+      '<div style="font-size:13.5px;white-space:pre-wrap">'+esc(x.obs||'📷')+'</div>'+
+      ((x.pics&&x.pics.length)?'<div class="thumbs">'+x.pics.map(p=>'<img src="'+p+'" alt="foto" style="width:72px;height:72px">').join('')+'</div>':'')+
       '<div class="btnrow" style="margin-top:8px"><button class="btn btn-sm '+(x.fix?'btn-ok':'btn-ghost')+'" data-act="fix" data-k="'+x.no+'">'+(x.fix?'✓ Arreglado':'Marcar arreglado')+'</button>'+
       '<button class="btn btn-sm btn-ghost" data-act="viewroom" data-k="'+x.no+'">Ver habitación</button>'+
       ((x.photos)? '<span class="pill" style="background:#eaf0ff;color:#1d4ed8">📷 '+x.photos+'</span>':'')+'</div></div>';
@@ -3363,7 +3393,10 @@ function handle(act,k,el){
     case 'chk': { if(el.dataset.v==='1'){ quickPass(k); } else { openCheck(k); } break; }
     case 'chkopen': openCheck(k); break;
     case 'chkgo': saveCheck(k, el.dataset.v); break;
-    case 'chkundo': { const d=ensureDay(UI.sessionAdminDate()); if(d.checks) delete d.checks[k]; save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
+    case 'chkundo': { const kk=UI.sessionAdminDate(), d=ensureDay(kk);
+      undoReopen(kk,d,k);
+      if(d.checks) delete d.checks[k]; d.chkDel=d.chkDel||{}; d.chkDel[k]=Date.now();
+      save(); closeModal(); render(); toast('Revisión borrada · 已取消'); break; }
     case 'printrev': printParte(UI.sessionAdminDate()); break;
     case 'printrep': printReparto(UI.date); break;
     case 'issueadd': {
@@ -3537,6 +3570,20 @@ function doAutoAssign(){
   const r=autoAssign(UI.date); save(); UI.tab='plan'; render();
   toast('Repartido · '+Object.keys(ensureDay(UI.date).assign).length+' habitaciones');
 }
+/* visor de fotos: tocar cualquier miniatura la abre grande · 点照片放大 */
+const PV={list:[],i:0};
+function pvShow(){ const im=document.getElementById('pvImg'); im.src=PV.list[PV.i]||''; document.getElementById('pvN').textContent=(PV.i+1)+' / '+PV.list.length;
+  document.querySelectorAll('#pv .pvbar button').forEach(b=>b.style.visibility=PV.list.length>1?'visible':'hidden'); document.getElementById('pv').classList.add('on'); }
+function pvClose(){ document.getElementById('pv').classList.remove('on'); document.getElementById('pvImg').src=''; }
+document.addEventListener('click',e=>{
+  const pvb=e.target.closest('[data-pv]');
+  if(pvb){ e.stopPropagation(); const v=pvb.dataset.pv; if(v==='x'){ pvClose(); } else { PV.i=(PV.i+Number(v)+PV.list.length)%PV.list.length; pvShow(); } return; }
+  if(e.target.id==='pv'){ e.stopPropagation(); pvClose(); return; }
+  const img=e.target.closest('.thumbs img');
+  if(img){ e.stopPropagation(); e.preventDefault(); const box=img.closest('.thumbs'); PV.list=Array.from(box.querySelectorAll('img')).map(x=>x.src); PV.i=Math.max(0,PV.list.indexOf(img.src)); pvShow(); }
+},true);
+document.addEventListener('keydown',e=>{ if(!document.getElementById('pv').classList.contains('on')) return;
+  if(e.key==='Escape') pvClose(); if(e.key==='ArrowRight'){ PV.i=(PV.i+1)%PV.list.length; pvShow(); } if(e.key==='ArrowLeft'){ PV.i=(PV.i-1+PV.list.length)%PV.list.length; pvShow(); } });
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]'); if(!el) return;
   if(el.tagName==='input'||el.tagName==='INPUT') return;
