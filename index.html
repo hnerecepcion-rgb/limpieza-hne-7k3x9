@@ -200,7 +200,7 @@ body.lux-on{background:#08132b}
 .lux-crest{width:96px;height:96px;margin:6px auto 14px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 35% 30%,#1f3a70,#0b1733);border:1.5px solid #c8a962;box-shadow:0 0 0 6px rgba(200,169,98,.12),0 0 0 7px rgba(200,169,98,.45),0 18px 40px rgba(0,0,0,.45);
   font-family:"Didot","Bodoni 72","Playfair Display",Georgia,serif;font-size:30px;letter-spacing:2px;color:#e6d5a8}
-.lux-crest{animation:luxIn .9s ease-out}
+.lux-crest.anim{animation:luxIn .9s ease-out}
 .lux-name{text-align:center;font-family:"Didot","Bodoni 72","Playfair Display",Georgia,serif;font-size:25px;letter-spacing:5px;color:#e9dcb8;text-transform:uppercase;line-height:1.15}
 .lux-sub{text-align:center;font-size:11.5px;letter-spacing:3.5px;color:#a8b3cc;text-transform:uppercase;margin-top:6px}
 .lux-orn{display:flex;align-items:center;gap:10px;justify-content:center;margin:16px auto 6px;color:#c8a962;font-size:11px}
@@ -222,7 +222,8 @@ body.lux-on{background:#08132b}
 .lux .rec{display:flex;align-items:center;gap:14px;text-align:left;padding:14px 16px}
 .lux .rec .av{margin:0;background:linear-gradient(145deg,#c8a962,#8c7034)!important;color:#0e1c3d}
 .lux-pin{margin-top:16px;border-radius:20px;padding:18px 16px 14px;background:linear-gradient(170deg,rgba(255,255,255,.09),rgba(255,255,255,.03));
-  border:1px solid rgba(200,169,98,.45);box-shadow:0 20px 50px rgba(0,0,0,.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:luxIn .35s ease-out}
+  border:1px solid rgba(200,169,98,.45);box-shadow:0 20px 50px rgba(0,0,0,.4);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.lux-pin.anim{animation:luxIn .35s ease-out}
 .lux-pin .t{text-align:center;font-size:14px;color:#e9dcb8;letter-spacing:1px}
 .lux-pin .lb{color:#a8b3cc}
 .lux-pin .inp{background:rgba(255,255,255,.06);border-color:rgba(200,169,98,.4);color:#fff}
@@ -236,7 +237,7 @@ body.lux-on{background:#08132b}
 .lux-note{text-align:center;font-size:12px;color:#a8b3cc;margin-top:18px;line-height:1.6}
 .lux-foot{text-align:center;color:#6f7d9c;font-size:10.5px;letter-spacing:2.5px;text-transform:uppercase;margin-top:26px}
 @keyframes luxIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.lux-crest,.lux-pin{animation:none}}
+@media (prefers-reduced-motion:reduce){.lux-crest.anim,.lux-pin.anim{animation:none}}
 .thumbs img{width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in}
 #pv{position:fixed;inset:0;z-index:9999;background:rgba(6,10,22,.94);display:none;flex-direction:column;align-items:center;justify-content:center;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))}
 #pv.on{display:flex}
@@ -2297,7 +2298,7 @@ function renderLogin(app){
   const now=new Date();
   app.innerHTML=
   '<div class="lux"><div class="in">'+
-    '<div class="lux-crest">HNE</div>'+
+    '<div class="lux-crest'+(window.__luxShown?'':' anim')+'">HNE</div>'+
     '<div class="lux-name">'+esc(S.cfg.hotel||'Hotel Nueva Europa').replace(/^HOTEL\s+/i,'Hotel<br>')+'</div>'+
     '<div class="lux-sub">Housekeeping · 客房清洁管理</div>'+
     '<div class="lux-orn">✦</div>'+
@@ -2313,7 +2314,7 @@ function renderLogin(app){
     '<div class="lux-h">前台 · Recepción</div>'+
     '<div class="user-pick rec '+(UI.pick==='admin'?'on':'')+'" data-act="pick" data-k="admin">'+
       '<div class="av">🛎</div><div><div class="nm">前台后台</div><div class="rl">Panel de control · Admin</div></div></div>'+
-    (UI.pick? '<div class="lux-pin">'+
+    (UI.pick? '<div class="lux-pin'+(UI.pinFresh?' anim':'')+'">'+
       '<div class="t">'+(UI.pick==='admin'?'🔐 后台密码 · PIN':'🔐 '+esc((cleaner(UI.pick)||{}).name||'')+'，请输入密码 · PIN')+'</div>'+
       (UI.pick!=='admin'? '<label class="lb">账号 ID</label><input class="inp" id="loginId" value="'+esc((cleaner(UI.pick)||{}).login||'')+'" autocapitalize="off">':'')+
       '<div class="pin-dots">'+[0,1,2,3].map(i=>'<div class="pin-dot '+(UI.pin.length>i?'f':'')+'"></div>').join('')+'</div>'+
@@ -2327,6 +2328,7 @@ function renderLogin(app){
     '</div>' : '<div class="lux-note">输入密码登录，系统自动记录上班时间。<br>Entra con tu nombre y PIN: la entrada se registra sola.</div>')+
     '<div class="lux-foot">✦ '+esc(S.cfg.hotel||'')+' ✦</div>'+
   '</div></div>';
+  window.__luxShown=true; UI.pinFresh=false;
   clearInterval(window.__luxT);
   window.__luxT=setInterval(()=>{ const el=document.getElementById('luxClock'); if(!el){ clearInterval(window.__luxT); return; } const d=new Date(); el.textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); },15000);
 }
@@ -3612,12 +3614,17 @@ function handle(act,k,el){
   switch(act){
     case 'mask': if(el===el.closest('.mask')) closeModal(); break;
     case 'close': closeModal(); break;
-    case 'pick': UI.pick=k||null; UI.pin=''; UI.pinErr=''; render(); if(UI.pick) setTimeout(()=>{ const p=document.querySelector('.lux-pin'); if(p&&p.scrollIntoView) p.scrollIntoView({behavior:'smooth',block:'center'}); },60); break;
-    case 'key':
-      if(k==='del'){ UI.pin=UI.pin.slice(0,-1); render(); break; }
-      if(k==='ok'){ if(UI.pin.length>=4) doLogin(UI.pick); else {UI.pinErr='Faltan dígitos';render();} break; }
-      if(UI.pin.length<4){ UI.pin+=k; UI.pinErr=''; if(UI.pin.length===4){ setTimeout(()=>{ if(UI.pin.length===4) doLogin(UI.pick); },180); } render(); }
+    case 'pick': UI.pick=k||null; UI.pin=''; UI.pinErr=''; UI.pinFresh=!!UI.pick; render(); if(UI.pick) setTimeout(()=>{ const p=document.querySelector('.lux-pin'); if(p&&p.scrollIntoView) p.scrollIntoView({behavior:'smooth',block:'center'}); },60); break;
+    case 'key': {
+      /* solo se actualizan los puntitos, sin redibujar la pantalla (así no "salta") */
+      const paintPin=()=>{ const ds=document.querySelectorAll('.pin-dot'); if(!ds.length){ render(); return; }
+        ds.forEach((d,i)=>d.classList.toggle('f',UI.pin.length>i));
+        const er=document.querySelector('.lux-pin .danger-note'); if(er&&!UI.pinErr) er.remove(); };
+      if(k==='del'){ UI.pin=UI.pin.slice(0,-1); paintPin(); break; }
+      if(k==='ok'){ if(UI.pin.length>=4) doLogin(UI.pick); else {UI.pinErr='Faltan dígitos · 位数不够';render();} break; }
+      if(UI.pin.length<4){ UI.pin+=k; UI.pinErr=''; paintPin(); if(UI.pin.length===4){ setTimeout(()=>{ if(UI.pin.length===4) doLogin(UI.pick); },180); } }
       break;
+    }
     case 'logout': S.session=null; save(); UI.pick=null;UI.pin='';render(); break;
     case 'lang': UI.lang=k; try{localStorage.setItem('hne_lang',k)}catch(e){}; closeModal(); render(); break;
     case 'notices': openNotices(S.session.role==='admin'?'admin':S.session.uid); break;
