@@ -1164,16 +1164,20 @@ function assignZones(day){
   const oldZones=day.zones||{};
   const doneZones={};
   Object.keys(oldZones).forEach(z=>{ if(oldZones[z].status==='done') doneZones[z]=oldZones[z]; });
+  /* primero se cuentan las zonas de las que sí trabajan; las de quien descansa
+     van a quien menos zonas tenga (y, a igualdad, a quien menos habitaciones lleve) */
   const counts={}; active.forEach(c=>counts[c.id]=0);
+  S.cfg.zones.forEach(z=>{ if(active.find(c=>c.id===z.owner)) counts[z.owner]++; });
+  const roomsOf=cid=>ROOMS.filter(r=>day.assign&&day.assign[r.no]===cid).reduce((a,r)=>a+roomW(r.no,day.status[r.no]),0);
   const res={};
   S.cfg.zones.forEach(z=>{
     let who=z.owner;
     const ok=active.find(c=>c.id===who);
     if(!ok){
-      const free=active.slice().sort((a,b)=>counts[a.id]-counts[b.id]);
+      const free=active.slice().sort((a,b)=>(counts[a.id]-counts[b.id])||(roomsOf(a.id)/(a.factor||1)-roomsOf(b.id)/(b.factor||1)));
       who=free[0]?free[0].id:null;
-    }
-    counts[who]=(counts[who]||0)+1;
+      if(who) counts[who]++;
+    } else { counts[who]=counts[who]; }
     res[z.id]=doneZones[z.id]||{assignee:who,status:'pending',rounds:[],obs:'',photos:[],u:Date.now()};
     res[z.id].assignee=who;
   });
@@ -3275,10 +3279,14 @@ function syncZonesToday(){
   const k=TODAY(), day=S.days[k]; if(!day||!day.zones||!Object.keys(day.assign||{}).length) return;
   const ids=(S.cfg.zones||[]).map(z=>z.id);
   Object.keys(day.zones).forEach(id=>{ if(!ids.includes(id)&&day.zones[id].status==='pending') delete day.zones[id]; });
+  const act=activeCleaners(day);
   (S.cfg.zones||[]).forEach(z=>{
     const t=day.zones[z.id];
-    if(!t) day.zones[z.id]={assignee:z.owner||null,status:'pending',rounds:[],obs:'',photos:[],u:Date.now()};
-    else if(t.status==='pending'&&z.owner&&t.assignee!==z.owner){ t.assignee=z.owner; t.u=Date.now(); }
+    const working=act.find(c=>c.id===z.owner);
+    let who=z.owner||null;
+    if(!working){ const cnt=c=>Object.values(day.zones).filter(x=>x.assignee===c.id).length; const f=act.slice().sort((a,b)=>cnt(a)-cnt(b))[0]; who=f?f.id:null; }
+    if(!t) day.zones[z.id]={assignee:who,status:'pending',rounds:[],obs:'',photos:[],u:Date.now()};
+    else if(t.status==='pending'&&working&&t.assignee!==z.owner){ t.assignee=z.owner; t.u=Date.now(); }
   });
   day.cfgU=Date.now();
 }
