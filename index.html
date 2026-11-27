@@ -558,6 +558,18 @@ function cleaner(id){ return S.cfg.cleaners.find(c=>c.id===id) }
 function xWeightVal(){ return (typeof S!=='undefined'&&S&&S.cfg&&S.cfg.xWeight===0.5)?0.5:1 }
 /* 8111 / 8211 (suite de 2 camas): una sola persona, cuenta como 2 dobles */
 /* plantas permitidas para una persona: como mucho 2 y seguidas (1-2 o 2-3, nunca 1 y 3) */
+/* Reparto de cada tipo (X de dobles, CO y X de 2 camas):
+   las de jornada completa, todas igual (lo que da la división entera); lo que sobra, para Liquan.
+   Ej.: 13 X de dobles con 4 completas → 3+3+3+3 y Liquan 1. 15 CO de 2 camas → 3+3+3+3 y Liquan 3.
+   Si Liquan no está, a partes iguales entre todas. */
+function catIdeal(active,cid,tot){
+  const owner=suiteOwnerId();
+  const hasOwner=active.some(c=>c.id===owner);
+  if(!hasOwner) return tot/(active.length||1);
+  const nF=active.filter(c=>c.id!==owner).length||1;
+  const base=Math.floor(tot/nF);
+  return cid===owner? tot-base*nF : base;
+}
 function floorsOK(set){ const a=[...set].sort(); return a.length<=1||(a.length===2&&a[1]-a[0]===1); }
 function roomUnits(no){ const r=ROOMMAP[no]; return r&&r.type==='SUITE2'?2:1; }
 function roomW(no,st){ return weight(st)*roomUnits(no); }
@@ -688,7 +700,9 @@ function autoAssign(k){
     let sc=0;
     active.forEach(c=>{ const dv=ld[c.id]-res.target[c.id]; sc+=(c.id===suiteOwnerId()?Math.max(0,-dv):Math.abs(dv))*30; if(!floorsOK(fl[c.id])) sc+=1000; });
     /* dobles y 2 camas, CO y X: que nadie se lleve 2 más que otra */
-    ['DCO','DX','TCO','TX'].forEach(key=>{ const v=active.filter(c=>key==='DCO'?(c.factor||1)===1:true).map(c=>mix[c.id][key]||0); if(v.length){ const sp=Math.max(...v)-Math.min(...v); sc+=sp*sp*(key==='DCO'?1:8); } });
+    ['DX','TCO','TX'].forEach(key=>{ const tot=active.reduce((a,c)=>a+(mix[c.id][key]||0),0);
+      active.forEach(c=>{ const d=(mix[c.id][key]||0)-catIdeal(active,c.id,tot); sc+=d*d*8; }); });
+    { const v=active.filter(c=>c.id!==suiteOwnerId()).map(c=>mix[c.id]['DCO']||0); if(v.length){ const sp=Math.max(...v)-Math.min(...v); sc+=sp*sp; } }
     return sc;
   };
   let bestOpts={}, bestSc=score(base);
@@ -1039,8 +1053,8 @@ function autoAssignCore(k,opts){
     const nA=active.length||1;
     const fixU=cid=>allRooms.filter(r=>!catOf(r)&&(assign[r.no]===cid||pair[r.no]===cid)).reduce((a,r)=>a+roomW(r.no,day.status[r.no]),0);
     const ideal=(cid,c)=>{
-      if(c!=='D-CO') return tot[c]/nA;
-      return Math.max(0, target[cid]-fixU(cid)-['D-X','T-CO','T-X'].reduce((a,x)=>a+tot[x]/nA,0));
+      if(c!=='D-CO') return catIdeal(active,cid,tot[c]);
+      return Math.max(0, target[cid]-fixU(cid)-['D-X','T-CO','T-X'].reduce((a,x)=>a+catIdeal(active,cid,tot[x]),0));
     };
     const cost=(cid,c,n)=>{ const d=n-ideal(cid,c); return (c==='D-CO'?0.05:10)*d*d; };
     for(let it=0; it<500; it++){
@@ -1103,7 +1117,7 @@ function autoAssignCore(k,opts){
     allRooms.forEach(r=>{ const c=catOf(r); if(!c) return; const u=roomUnits(r.no); [assign[r.no],pair[r.no]].forEach(p=>{ if(p&&cnt[p]){ cnt[p][c]+=u; tot[c]+=u; } }); });
     const nA=active.length||1;
     const fixU=cid=>allRooms.filter(r=>!catOf(r)&&(assign[r.no]===cid||pair[r.no]===cid)).reduce((a,r)=>a+roomW(r.no,day.status[r.no]),0);
-    const ideal=(cid,c)=> c!=='D-CO'? tot[c]/nA : Math.max(0, target[cid]-fixU(cid)-['D-X','T-CO','T-X'].reduce((a,x)=>a+tot[x]/nA,0));
+    const ideal=(cid,c)=> c!=='D-CO'? catIdeal(active,cid,tot[c]) : Math.max(0, target[cid]-fixU(cid)-['D-X','T-CO','T-X'].reduce((a,x)=>a+catIdeal(active,cid,tot[x]),0));
     const cost=(cid,c,n)=>{ const d=n-ideal(cid,c); return (c==='D-CO'?0.05:10)*d*d; };
     for(let it=0; it<60; it++){
       const G={};
